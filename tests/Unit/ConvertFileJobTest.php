@@ -4,6 +4,7 @@ namespace Tests\Unit;
 
 use App\Enums\ConversionFormat;
 use App\Enums\TaskStatus;
+use App\Enums\TaskType;
 use App\Jobs\ConvertFileJob;
 use App\Models\Task;
 use App\Services\FileConversionService;
@@ -29,7 +30,7 @@ class ConvertFileJobTest extends TestCase
 
     public function test_handle_returns_early_when_batch_is_cancelled(): void
     {
-        $task = Task::factory()->pending()->create(['type' => 'file_conversion']);
+        $task = Task::factory()->pending()->create(['type' => TaskType::FileConversion->value]);
         Storage::put('uploads/' . $task->uuid . '/input.csv', "name,age\nAlice,30\n");
 
         $job = new ConvertFileJob($task, 'uploads/' . $task->uuid . '/input.csv', ConversionFormat::Json);
@@ -48,7 +49,7 @@ class ConvertFileJobTest extends TestCase
 
     public function test_handle_does_not_call_service_when_batch_is_cancelled(): void
     {
-        $task = Task::factory()->pending()->create(['type' => 'file_conversion']);
+        $task = Task::factory()->pending()->create(['type' => TaskType::FileConversion->value]);
 
         $service = $this->mock(FileConversionService::class);
         $service->shouldNotReceive('convert');
@@ -59,13 +60,25 @@ class ConvertFileJobTest extends TestCase
         $job->handle($service);
     }
 
+    public function test_task_status_is_unchanged_when_batch_is_cancelled(): void
+    {
+        $task = Task::factory()->pending()->create(['type' => TaskType::FileConversion->value]);
+
+        $job = new ConvertFileJob($task, 'conversions/' . $task->uuid . '/input.csv', ConversionFormat::Json);
+        $job->withFakeBatch(cancelledAt: CarbonImmutable::now());
+
+        $job->handle(app(FileConversionService::class));
+
+        $this->assertSame(TaskStatus::Pending, $task->fresh()->status);
+    }
+
     // -------------------------------------------------------------------------
     // Group B — Successful conversion
     // -------------------------------------------------------------------------
 
     public function test_handle_writes_output_file_on_successful_conversion(): void
     {
-        $task = Task::factory()->pending()->create(['type' => 'file_conversion']);
+        $task = Task::factory()->pending()->create(['type' => TaskType::FileConversion->value]);
         Storage::put('conversions/' . $task->uuid . '/input.csv', "name,age\nAlice,30\n");
 
         $job = new ConvertFileJob($task, 'conversions/' . $task->uuid . '/input.csv', ConversionFormat::Json);
@@ -79,7 +92,7 @@ class ConvertFileJobTest extends TestCase
 
     public function test_handle_accumulates_output_path_in_task_payload(): void
     {
-        $task = Task::factory()->pending()->create(['type' => 'file_conversion']);
+        $task = Task::factory()->pending()->create(['type' => TaskType::FileConversion->value]);
         Storage::put('conversions/' . $task->uuid . '/input.csv', "name,age\nAlice,30\n");
 
         $job = new ConvertFileJob($task, 'conversions/' . $task->uuid . '/input.csv', ConversionFormat::Json);
@@ -94,11 +107,11 @@ class ConvertFileJobTest extends TestCase
 
     public function test_handle_does_not_mark_task_as_failed_on_success(): void
     {
-        $task = Task::factory()->pending()->create(['type' => 'file_conversion']);
+        $task = Task::factory()->pending()->create(['type' => TaskType::FileConversion->value]);
         Storage::put('conversions/' . $task->uuid . '/input.csv', "name,age\nAlice,30\n");
 
         $job = new ConvertFileJob($task, 'conversions/' . $task->uuid . '/input.csv', ConversionFormat::Json);
-        $job->withFakeBatch(); // sets up a non-cancelled fake batch
+        $job->withFakeBatch();
 
         $job->handle(app(FileConversionService::class));
 
@@ -106,9 +119,70 @@ class ConvertFileJobTest extends TestCase
         $this->assertNull($task->fresh()->error_message);
     }
 
+    public function test_task_status_remains_pending_after_successful_handle(): void
+    {
+        $task = Task::factory()->pending()->create(['type' => TaskType::FileConversion->value]);
+        Storage::put('conversions/' . $task->uuid . '/input.csv', "name,age\nAlice,30\n");
+
+        $job = new ConvertFileJob($task, 'conversions/' . $task->uuid . '/input.csv', ConversionFormat::Json);
+        $job->withFakeBatch();
+
+        $job->handle(app(FileConversionService::class));
+
+        $this->assertSame(TaskStatus::Pending, $task->fresh()->status);
+    }
+
+    public function test_output_file_exists_on_disk_after_successful_handle(): void
+    {
+        $task = Task::factory()->pending()->create(['type' => TaskType::FileConversion->value]);
+        Storage::put('conversions/' . $task->uuid . '/input.csv', "name,age\nAlice,30\n");
+
+        $job = new ConvertFileJob($task, 'conversions/' . $task->uuid . '/input.csv', ConversionFormat::Json);
+        $job->withFakeBatch();
+
+        $job->handle(app(FileConversionService::class));
+
+        $outputPath = $task->fresh()->payload['output_files'][0];
+        Storage::disk('local')->assertExists($outputPath);
+    }
+
+    public function test_source_file_is_preserved_after_conversion(): void
+    {
+        $task       = Task::factory()->pending()->create(['type' => TaskType::FileConversion->value]);
+        $sourcePath = 'conversions/' . $task->uuid . '/input.csv';
+        Storage::put($sourcePath, "name,age\nAlice,30\n");
+
+        $job = new ConvertFileJob($task, $sourcePath, ConversionFormat::Json);
+        $job->withFakeBatch();
+
+        $job->handle(app(FileConversionService::class));
+
+        Storage::disk('local')->assertExists($sourcePath);
+    }
+
+    public function test_retry_produces_a_distinct_output_path(): void
+    {
+        $task       = Task::factory()->pending()->create(['type' => TaskType::FileConversion->value]);
+        $sourcePath = 'conversions/' . $task->uuid . '/input.csv';
+        Storage::put($sourcePath, "name,age\nAlice,30\n");
+
+        $job1 = new ConvertFileJob($task, $sourcePath, ConversionFormat::Json);
+        $job1->withFakeBatch();
+        $job1->handle(app(FileConversionService::class));
+
+        // Simulate a retry: same source, same format, new job instance
+        $job2 = new ConvertFileJob($task->fresh(), $sourcePath, ConversionFormat::Json);
+        $job2->withFakeBatch();
+        $job2->handle(app(FileConversionService::class));
+
+        $outputFiles = $task->fresh()->payload['output_files'];
+        $this->assertCount(2, $outputFiles);
+        $this->assertNotSame($outputFiles[0], $outputFiles[1]);
+    }
+
     public function test_handle_stub_conversion_writes_output_and_accumulates_path(): void
     {
-        $task = Task::factory()->pending()->create(['type' => 'file_conversion']);
+        $task = Task::factory()->pending()->create(['type' => TaskType::FileConversion->value]);
         Storage::put('conversions/' . $task->uuid . '/input.pdf', 'binary content');
 
         $job = new ConvertFileJob($task, 'conversions/' . $task->uuid . '/input.pdf', ConversionFormat::Txt);
@@ -124,7 +198,7 @@ class ConvertFileJobTest extends TestCase
 
     public function test_handle_accumulates_multiple_output_paths_across_calls(): void
     {
-        $task = Task::factory()->pending()->create(['type' => 'file_conversion']);
+        $task = Task::factory()->pending()->create(['type' => TaskType::FileConversion->value]);
         Storage::put('conversions/' . $task->uuid . '/a.csv', "name\nAlice\n");
         Storage::put('conversions/' . $task->uuid . '/b.csv', "name\nBob\n");
 
@@ -142,7 +216,7 @@ class ConvertFileJobTest extends TestCase
 
     public function test_handle_does_not_accumulate_output_path_when_conversion_throws(): void
     {
-        $task = Task::factory()->pending()->create(['type' => 'file_conversion']);
+        $task = Task::factory()->pending()->create(['type' => TaskType::FileConversion->value]);
         // Source file is deliberately absent — convert() will throw RuntimeException
 
         $job = new ConvertFileJob($task, 'conversions/' . $task->uuid . '/missing.csv', ConversionFormat::Json);
@@ -163,11 +237,11 @@ class ConvertFileJobTest extends TestCase
 
     public function test_handle_returns_early_when_task_is_deleted(): void
     {
-        $task = Task::factory()->pending()->create(['type' => 'file_conversion']);
+        $task = Task::factory()->pending()->create(['type' => TaskType::FileConversion->value]);
         Storage::put('conversions/' . $task->uuid . '/input.csv', "name,age\nAlice,30\n");
 
         $job = new ConvertFileJob($task, 'conversions/' . $task->uuid . '/input.csv', ConversionFormat::Json);
-        $job->withFakeBatch(); // sets up a non-cancelled fake batch
+        $job->withFakeBatch();
 
         $task->delete();
         $job->handle(app(FileConversionService::class));
@@ -177,13 +251,27 @@ class ConvertFileJobTest extends TestCase
         $this->assertEmpty($files);
     }
 
+    public function test_service_is_not_called_when_task_is_deleted(): void
+    {
+        $task = Task::factory()->pending()->create(['type' => TaskType::FileConversion->value]);
+
+        $service = $this->mock(FileConversionService::class);
+        $service->shouldNotReceive('convert');
+
+        $job = new ConvertFileJob($task, 'conversions/' . $task->uuid . '/input.csv', ConversionFormat::Json);
+        $job->withFakeBatch();
+
+        $task->delete();
+        $job->handle($service);
+    }
+
     // -------------------------------------------------------------------------
     // Group D — failed() hook
     // -------------------------------------------------------------------------
 
     public function test_failed_sets_task_status_to_failed(): void
     {
-        $task = Task::factory()->pending()->create(['type' => 'file_conversion']);
+        $task = Task::factory()->pending()->create(['type' => TaskType::FileConversion->value]);
 
         $job = new ConvertFileJob($task, 'conversions/' . $task->uuid . '/input.csv', ConversionFormat::Json);
         $job->failed(new RuntimeException('CSV parse error'));
@@ -193,7 +281,7 @@ class ConvertFileJobTest extends TestCase
 
     public function test_failed_stores_runtime_exception_message(): void
     {
-        $task = Task::factory()->pending()->create(['type' => 'file_conversion']);
+        $task = Task::factory()->pending()->create(['type' => TaskType::FileConversion->value]);
 
         $job = new ConvertFileJob($task, 'conversions/' . $task->uuid . '/input.csv', ConversionFormat::Json);
         $job->failed(new RuntimeException('CSV parse error'));
@@ -203,7 +291,7 @@ class ConvertFileJobTest extends TestCase
 
     public function test_failed_stores_generic_message_for_non_runtime_exception(): void
     {
-        $task = Task::factory()->pending()->create(['type' => 'file_conversion']);
+        $task = Task::factory()->pending()->create(['type' => TaskType::FileConversion->value]);
 
         $job = new ConvertFileJob($task, 'conversions/' . $task->uuid . '/input.csv', ConversionFormat::Json);
         $job->failed(new \Exception('SQLSTATE[HY000] connection refused at /var/app/secret/path'));
@@ -214,10 +302,54 @@ class ConvertFileJobTest extends TestCase
         );
     }
 
+    public function test_failed_stores_generic_message_for_logic_exception(): void
+    {
+        $task = Task::factory()->pending()->create(['type' => TaskType::FileConversion->value]);
+
+        $job = new ConvertFileJob($task, 'conversions/' . $task->uuid . '/input.csv', ConversionFormat::Json);
+        $job->failed(new \LogicException('internal logic failure with sensitive detail'));
+
+        $this->assertSame(
+            'An unexpected error occurred during file conversion.',
+            $task->fresh()->error_message
+        );
+    }
+
+    public function test_failed_propagates_message_for_runtime_exception_subclass(): void
+    {
+        $task = Task::factory()->pending()->create(['type' => TaskType::FileConversion->value]);
+
+        $job = new ConvertFileJob($task, 'conversions/' . $task->uuid . '/input.csv', ConversionFormat::Json);
+        $job->failed(new \OverflowException('File exceeds maximum allowed size'));
+
+        $this->assertSame('File exceeds maximum allowed size', $task->fresh()->error_message);
+    }
+
+    public function test_failed_stores_empty_error_message_when_runtime_exception_has_no_message(): void
+    {
+        $task = Task::factory()->pending()->create(['type' => TaskType::FileConversion->value]);
+
+        $job = new ConvertFileJob($task, 'conversions/' . $task->uuid . '/input.csv', ConversionFormat::Json);
+        $job->failed(new RuntimeException(''));
+
+        $this->assertSame('', $task->fresh()->error_message);
+    }
+
+    public function test_failed_overwrites_completed_status(): void
+    {
+        $task = Task::factory()->completed()->create(['type' => TaskType::FileConversion->value]);
+
+        $job = new ConvertFileJob($task, 'conversions/' . $task->uuid . '/input.csv', ConversionFormat::Json);
+        $job->failed(new RuntimeException('Late failure'));
+
+        $this->assertSame(TaskStatus::Failed, $task->fresh()->status);
+        $this->assertSame('Late failure', $task->fresh()->error_message);
+    }
+
     public function test_failed_overwrites_stale_error_message_on_retry(): void
     {
         $task = Task::factory()->failed()->create([
-            'type'          => 'file_conversion',
+            'type'          => TaskType::FileConversion->value,
             'error_message' => 'Previous attempt error',
         ]);
 
@@ -229,7 +361,7 @@ class ConvertFileJobTest extends TestCase
 
     public function test_failed_is_idempotent_when_task_is_already_failed(): void
     {
-        $task = Task::factory()->failed()->create(['type' => 'file_conversion']);
+        $task = Task::factory()->failed()->create(['type' => TaskType::FileConversion->value]);
 
         $job = new ConvertFileJob($task, 'conversions/' . $task->uuid . '/input.csv', ConversionFormat::Json);
         $job->failed(new RuntimeException('error'));
@@ -240,7 +372,7 @@ class ConvertFileJobTest extends TestCase
 
     public function test_job_has_correct_retry_configuration(): void
     {
-        $task = Task::factory()->pending()->create(['type' => 'file_conversion']);
+        $task = Task::factory()->pending()->create(['type' => TaskType::FileConversion->value]);
         $job  = new ConvertFileJob($task, 'conversions/' . $task->uuid . '/input.csv', ConversionFormat::Json);
 
         $this->assertSame(3, $job->tries);
@@ -250,7 +382,7 @@ class ConvertFileJobTest extends TestCase
 
     public function test_failed_does_not_throw_when_task_is_deleted(): void
     {
-        $task = Task::factory()->pending()->create(['type' => 'file_conversion']);
+        $task = Task::factory()->pending()->create(['type' => TaskType::FileConversion->value]);
         $job  = new ConvertFileJob($task, 'conversions/' . $task->uuid . '/input.csv', ConversionFormat::Json);
 
         $task->delete();

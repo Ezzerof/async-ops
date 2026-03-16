@@ -3,6 +3,7 @@
 namespace Database\Factories;
 
 use App\Enums\TaskStatus;
+use App\Enums\TaskType;
 use App\Models\Task;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -18,7 +19,7 @@ class TaskFactory extends Factory
         return [
             'user_id'       => User::factory(),
             'uuid'          => (string) Str::uuid(),
-            'type'          => 'user_export',
+            'type'          => TaskType::UserExport->value,
             'payload'       => null,
             'status'        => TaskStatus::Pending,
             'progress'      => 0,

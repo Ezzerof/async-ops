@@ -28,17 +28,19 @@ class TaskController extends Controller
     {
         $this->authorize('view', $task);
 
-        return response()->json($task);
+        return response()->json($this->taskService->withLiveProgress($task));
     }
 
     public function download(Request $request, Task $task): StreamedResponse
     {
         $this->authorize('download', $task);
 
+        $meta = $this->taskService->resolveDownloadMeta($task);
+
         return Storage::disk('local')->download(
             $task->result_path,
-            'report-' . $task->uuid . '.csv',
-            ['Content-Type' => 'text/csv'],
+            $meta['filename'],
+            ['Content-Type' => $meta['content_type']],
         );
     }
 }
