@@ -305,4 +305,32 @@ class TaskServiceTest extends TestCase
 
         $this->assertSame('application/octet-stream', $meta['content_type']);
     }
+
+    // -------------------------------------------------------------------------
+    // Group E — resolveDownloadMeta: data analysis tasks
+    // -------------------------------------------------------------------------
+
+    public function test_resolve_download_meta_returns_json_content_type_for_analysis_task(): void
+    {
+        $task = Task::factory()->completed()->create([
+            'type'        => TaskType::DataAnalysis->value,
+            'result_path' => 'analyses/' . Str::uuid() . '/result.json',
+        ]);
+
+        $meta = $this->service->resolveDownloadMeta($task);
+
+        $this->assertSame('application/json', $meta['content_type']);
+    }
+
+    public function test_resolve_download_meta_uses_analysis_prefix_and_uuid_for_analysis_task(): void
+    {
+        $task = Task::factory()->completed()->create([
+            'type'        => TaskType::DataAnalysis->value,
+            'result_path' => 'analyses/' . Str::uuid() . '/result.json',
+        ]);
+
+        $meta = $this->service->resolveDownloadMeta($task);
+
+        $this->assertSame('analysis-' . $task->uuid . '.json', $meta['filename']);
+    }
 }
