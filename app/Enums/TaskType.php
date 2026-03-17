@@ -6,4 +6,5 @@ enum TaskType: string
 {
     case UserExport     = 'user_export';
     case FileConversion = 'file_conversion';
+    case DataAnalysis   = 'data_analysis';
 }
