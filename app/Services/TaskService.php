@@ -8,6 +8,8 @@ use App\Enums\TaskType;
 use App\Jobs\AnalyseDataJob;
 use App\Jobs\ConvertFileJob;
 use App\Jobs\GenerateReportJob;
+use App\Jobs\ImportCsvJob;
+use App\Models\CsvImport;
 use App\Models\Task;
 use App\Models\User;
 use Illuminate\Bus\Batch;
@@ -18,47 +20,16 @@ use ZipArchive;
 
 class TaskService
 {
-    private const MIME_MAP = [
-        'csv'  => 'text/csv',
-        'json' => 'application/json',
-        'xml'  => 'application/xml',
-        'pdf'  => 'application/pdf',
-        'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'yaml' => 'application/yaml',
-        'txt'  => 'text/plain',
-        'zip'  => 'application/zip',
-    ];
-
     /**
      * Resolve the download filename and Content-Type for a completed task.
-     * Report tasks always return CSV. Conversion tasks derive both from the
-     * result_path extension, falling back to application/octet-stream.
+     * Delegates to the TaskType enum so no changes are needed here when new
+     * task types are added — each type owns its own download metadata.
      *
      * @return array{filename: string, content_type: string}
      */
     public function resolveDownloadMeta(Task $task): array
     {
-        if ($task->type === TaskType::UserExport->value) {
-            return [
-                'filename'     => 'report-' . $task->uuid . '.csv',
-                'content_type' => 'text/csv',
-            ];
-        }
-
-        if ($task->type === TaskType::DataAnalysis->value) {
-            return [
-                'filename'     => 'analysis-' . $task->uuid . '.json',
-                'content_type' => 'application/json',
-            ];
-        }
-
-        $ext = strtolower(pathinfo($task->result_path, PATHINFO_EXTENSION));
-
-        return [
-            'filename'     => 'conversion-' . $task->uuid . '.' . $ext,
-            'content_type' => self::MIME_MAP[$ext] ?? 'application/octet-stream',
-        ];
+        return TaskType::from($task->type)->downloadMeta($task->uuid, $task->result_path);
     }
 
 
@@ -190,6 +161,85 @@ class TaskService
         return $paths;
     }
 
+    /**
+     * Create a task, store the uploaded CSV under the task UUID directory, and
+     * dispatch ImportCsvJob. Cleans up uploaded file and task on failure.
+     */
+    public function createCsvImportTask(User $user, UploadedFile $file): Task
+    {
+        $task = $this->createTask(
+            user: $user,
+            type: TaskType::CsvImport->value,
+        );
+
+        try {
+            $path = $file->store('uploads/' . $task->uuid, 'local');
+
+            if ($path === false) {
+                throw new \RuntimeException('Failed to store uploaded file: ' . $file->getClientOriginalName());
+            }
+
+            $task->update(['payload' => [
+                'file'              => $path,
+                'original_filename' => $file->getClientOriginalName(),
+            ]]);
+
+            ImportCsvJob::dispatch($task);
+
+            return $task;
+        } catch (\Throwable $e) {
+            Storage::deleteDirectory('uploads/' . $task->uuid);
+            $task->delete();
+            throw $e;
+        }
+    }
+
+    /**
+     * Create a data_analysis task pointing to an already-stored import file
+     * and dispatch the existing AnalyseDataJob. Reuses the analysis pipeline
+     * without requiring the user to re-upload the file.
+     */
+    /**
+     * Return true if the import has any pending or processing analysis tasks
+     * that reference its stored file. Used to block deletion while derived
+     * work is still in flight.
+     */
+    public function hasActiveAnalysisFor(CsvImport $import): bool
+    {
+        return Task::where('type', TaskType::DataAnalysis->value)
+            ->whereIn('status', [TaskStatus::Pending->value, TaskStatus::Processing->value])
+            ->where('payload->file', $import->file_path)
+            ->exists();
+    }
+
+    public function deleteImport(CsvImport $import): void
+    {
+        Storage::disk('local')->deleteDirectory('imports/' . $import->task->uuid);
+        $import->task->delete(); // cascade removes the csv_imports row
+    }
+
+    public function createAnalysisTaskFromImport(User $user, CsvImport $import): Task
+    {
+        if ($import->task->status !== TaskStatus::Completed) {
+            throw new \InvalidArgumentException('Cannot analyse an import that has not completed successfully.');
+        }
+
+        $task = $this->createTask(
+            user:    $user,
+            type:    TaskType::DataAnalysis->value,
+            payload: ['file' => $import->file_path],
+        );
+
+        try {
+            AnalyseDataJob::dispatch($task);
+
+            return $task;
+        } catch (\Throwable $e) {
+            $task->delete();
+            throw $e;
+        }
+    }
+
     public function createAndDispatch(User $user, string $type, ?array $payload = null): Task
     {
         $task = Task::create([
@@ -212,19 +262,6 @@ class TaskService
      *
      * @param  \Illuminate\Contracts\Queue\ShouldQueue[]  $jobs
      */
-    public function createAndDispatchBatch(User $user, string $type, array $jobs, ?array $payload = null): Task
-    {
-        $task = Task::create([
-            'user_id'  => $user->id,
-            'type'     => $type,
-            'status'   => TaskStatus::Pending,
-            'progress' => 0,
-            'payload'  => $payload,
-        ]);
-
-        return $this->dispatchBatchForTask($task, $jobs);
-    }
-
     /**
      * Dispatch a Bus::batch() of jobs for an already-created Task, storing the
      * batch ID back onto the task payload. Use this when the Task must exist
