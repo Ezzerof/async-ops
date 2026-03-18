@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Enums\ConversionFormat;
 use App\Enums\TaskStatus;
 use App\Enums\TaskType;
+use App\Jobs\AnalyseDataJob;
 use App\Jobs\ConvertFileJob;
 use App\Jobs\GenerateReportJob;
 use App\Models\Task;
@@ -42,6 +43,13 @@ class TaskService
             return [
                 'filename'     => 'report-' . $task->uuid . '.csv',
                 'content_type' => 'text/csv',
+            ];
+        }
+
+        if ($task->type === TaskType::DataAnalysis->value) {
+            return [
+                'filename'     => 'analysis-' . $task->uuid . '.json',
+                'content_type' => 'application/json',
             ];
         }
 
@@ -121,6 +129,37 @@ class TaskService
             );
 
             return $this->dispatchBatchForTask($task, $jobs);
+        } catch (\Throwable $e) {
+            Storage::deleteDirectory('uploads/' . $task->uuid);
+            $task->delete();
+            throw $e;
+        }
+    }
+
+    /**
+     * Create a task, store the uploaded CSV under the task UUID directory, and
+     * dispatch AnalyseDataJob. If storing or dispatching fails the upload directory
+     * and the task record are cleaned up before re-throwing.
+     */
+    public function createAnalysisTask(User $user, UploadedFile $file): Task
+    {
+        $task = $this->createTask(
+            user: $user,
+            type: TaskType::DataAnalysis->value,
+        );
+
+        try {
+            $path = $file->store('uploads/' . $task->uuid, 'local');
+
+            if ($path === false) {
+                throw new \RuntimeException('Failed to store uploaded file: ' . $file->getClientOriginalName());
+            }
+
+            $task->update(['payload' => ['file' => $path]]);
+
+            AnalyseDataJob::dispatch($task);
+
+            return $task;
         } catch (\Throwable $e) {
             Storage::deleteDirectory('uploads/' . $task->uuid);
             $task->delete();

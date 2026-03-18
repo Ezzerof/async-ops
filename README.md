@@ -12,7 +12,13 @@ A Laravel API demonstrating async background task processing — from HTTP reque
 
 ## What It Does
 
-A user authenticates, requests a report via the API, and the system creates a `Task` record and dispatches a background job. The job generates a CSV of all users, tracking progress incrementally. Once complete, the file is available for download through a dedicated endpoint.
+A user authenticates, submits a task via the API, and the system creates a `Task` record and dispatches a background job. Three task types are supported:
+
+- **Report generation** — generates a demo sales report as a CSV
+- **File conversion** — converts uploaded files between formats (CSV, JSON, XML, etc.) using a batch job
+- **Data analysis** — accepts a CSV upload, computes column-level statistics (min/max/average/counts), and stores results as JSON
+
+Once complete, the result file is available for download through a dedicated endpoint — CSV for reports, JSON for analyses, and the converted file (or zip) for conversions.
 
 ## API Endpoints
 
@@ -20,9 +26,11 @@ A user authenticates, requests a report via the API, and the system creates a `T
 |---|---|---|---|
 | POST | `/api/login` | public | Obtain a Sanctum token |
 | POST | `/api/logout` | required | Revoke current token |
-| POST | `/api/tasks` | required | Request a new report task |
+| POST | `/api/tasks` | required | Request a report generation task |
 | GET | `/api/tasks/{uuid}` | required | Poll task status and progress |
-| GET | `/api/tasks/{uuid}/download` | required | Download the completed CSV |
+| GET | `/api/tasks/{uuid}/download` | required | Download the completed result |
+| POST | `/api/conversions` | required | Submit files for format conversion |
+| POST | `/api/analyses` | required | Upload a CSV for async analysis |
 
 Routes use UUID identifiers, not integer IDs.
 
@@ -52,4 +60,4 @@ php artisan test --env=testing
 
 The test environment uses `QUEUE_CONNECTION=sync`, so no queue worker is needed when running tests.
 
-Test suite: 49 tests, 102 assertions across 4 files.
+Test suite: 194 tests, 353 assertions.
