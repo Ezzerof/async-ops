@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Enums\Title;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -22,6 +23,11 @@ class User extends Authenticatable
      */
     protected $fillable = [
         'name',
+        'title',
+        'first_name',
+        'last_name',
+        'address',
+        'phone_number',
         'email',
         'password',
     ];
@@ -45,7 +51,8 @@ class User extends Authenticatable
     {
         return [
             'email_verified_at' => 'datetime',
-            'password' => 'hashed',
+            'password'          => 'hashed',
+            'title'             => Title::class,
         ];
     }
 
