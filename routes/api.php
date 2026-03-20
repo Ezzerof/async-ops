@@ -3,6 +3,7 @@
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\AnalysisController;
 use App\Http\Controllers\ConversionController;
+use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\CsvImportController;
 use App\Http\Controllers\TaskController;
 use Illuminate\Support\Facades\Route;
@@ -18,6 +19,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('/conversions', [ConversionController::class, 'store']);
     Route::post('/analyses',   [AnalysisController::class, 'store']);
+    Route::post('/invoices',   [InvoiceController::class, 'store']);
 
     Route::post('/imports',           [CsvImportController::class, 'store'])->middleware('throttle:10,1');
     Route::get('/imports/{import}',            [CsvImportController::class, 'show']);

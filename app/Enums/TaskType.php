@@ -4,11 +4,13 @@ namespace App\Enums;
 
 enum TaskType: string
 {
-    case UserExport     = 'user_export';
-    case FileConversion = 'file_conversion';
-    case DataAnalysis   = 'data_analysis';
-    case CsvImport      = 'csv_import';
 
+    case UserExport        = 'user_export';
+    case FileConversion    = 'file_conversion';
+    case DataAnalysis      = 'data_analysis';
+    case InvoiceGeneration = 'invoice_generation';
+
+   
     private const MIME_MAP = [
         'csv'  => 'text/csv',
         'json' => 'application/json',
@@ -38,6 +40,10 @@ enum TaskType: string
                 'filename'     => 'analysis-' . $uuid . '.json',
                 'content_type' => 'application/json',
             ],
+            self::InvoiceGeneration => [
+                'filename'     => 'invoice-' . $uuid . '.pdf',
+                'content_type' => 'application/pdf',
+            ],        
             self::FileConversion => $this->conversionMeta($uuid, $resultPath),
             self::CsvImport      => throw new \LogicException(
                 'CsvImport tasks do not produce a downloadable file.'
@@ -54,4 +60,5 @@ enum TaskType: string
             'content_type' => self::MIME_MAP[$ext] ?? 'application/octet-stream',
         ];
     }
+
 }
