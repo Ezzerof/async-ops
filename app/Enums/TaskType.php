@@ -8,6 +8,7 @@ enum TaskType: string
     case UserExport        = 'user_export';
     case FileConversion    = 'file_conversion';
     case DataAnalysis      = 'data_analysis';
+    case CsvImport         = 'csv_import';
     case InvoiceGeneration = 'invoice_generation';
 
    

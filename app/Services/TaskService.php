@@ -31,33 +31,7 @@ class TaskService
      */
     public function resolveDownloadMeta(Task $task): array
     {
-        if ($task->type === TaskType::UserExport->value) {
-            return [
-                'filename'     => 'report-' . $task->uuid . '.csv',
-                'content_type' => 'text/csv',
-            ];
-        }
-
-        if ($task->type === TaskType::DataAnalysis->value) {
-            return [
-                'filename'     => 'analysis-' . $task->uuid . '.json',
-                'content_type' => 'application/json',
-            ];
-        }
-
-        if ($task->type === TaskType::InvoiceGeneration->value) {
-            return [
-                'filename'     => 'invoice-' . $task->uuid . '.pdf',
-                'content_type' => 'application/pdf',
-            ];
-        }
-
-        $ext = strtolower(pathinfo($task->result_path, PATHINFO_EXTENSION));
-
-        return [
-            'filename'     => 'conversion-' . $task->uuid . '.' . $ext,
-            'content_type' => self::MIME_MAP[$ext] ?? 'application/octet-stream',
-        ];
+        return TaskType::from($task->type)->downloadMeta($task->uuid, $task->result_path);
     }
 
 
