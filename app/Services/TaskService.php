@@ -7,6 +7,7 @@ use App\Enums\TaskStatus;
 use App\Enums\TaskType;
 use App\Jobs\AnalyseDataJob;
 use App\Jobs\ConvertFileJob;
+use App\Jobs\GenerateInvoiceJob;
 use App\Jobs\GenerateReportJob;
 use App\Models\Task;
 use App\Models\User;
@@ -14,6 +15,7 @@ use Illuminate\Bus\Batch;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use ZipArchive;
 
 class TaskService
@@ -50,6 +52,13 @@ class TaskService
             return [
                 'filename'     => 'analysis-' . $task->uuid . '.json',
                 'content_type' => 'application/json',
+            ];
+        }
+
+        if ($task->type === TaskType::InvoiceGeneration->value) {
+            return [
+                'filename'     => 'invoice-' . $task->uuid . '.pdf',
+                'content_type' => 'application/pdf',
             ];
         }
 
@@ -158,6 +167,57 @@ class TaskService
             $task->update(['payload' => ['file' => $path]]);
 
             AnalyseDataJob::dispatch($task);
+
+            return $task;
+        } catch (\Throwable $e) {
+            Storage::deleteDirectory('uploads/' . $task->uuid);
+            $task->delete();
+            throw $e;
+        }
+    }
+
+    /**
+     * Validate the CSV header, create a task, store the uploaded CSV under the
+     * task UUID directory, and dispatch GenerateInvoiceJob. Header validation
+     * runs before the task is created so a bad file never produces a DB record.
+     * If storing or dispatching fails, the upload directory and task record are
+     * cleaned up before re-throwing.
+     */
+    public function createInvoiceTask(User $user, UploadedFile $file): Task
+    {
+        $handle = fopen($file->getRealPath(), 'r');
+
+        if ($handle === false) {
+            throw new \RuntimeException('Could not open uploaded file for header validation.');
+        }
+
+        $header = fgetcsv($handle);
+        fclose($handle);
+
+        $required = ['description', 'quantity', 'unit_price'];
+        $missing  = array_diff($required, array_map('strtolower', $header ?: []));
+
+        if (! empty($missing)) {
+            throw ValidationException::withMessages([
+                'file' => ['CSV is missing required columns: ' . implode(', ', $missing) . '.'],
+            ]);
+        }
+
+        $task = $this->createTask(
+            user: $user,
+            type: TaskType::InvoiceGeneration->value,
+        );
+
+        try {
+            $path = $file->store('uploads/' . $task->uuid, 'local');
+
+            if ($path === false) {
+                throw new \RuntimeException('Failed to store uploaded file: ' . $file->getClientOriginalName());
+            }
+
+            $task->update(['payload' => ['file' => $path]]);
+
+            GenerateInvoiceJob::dispatch($task);
 
             return $task;
         } catch (\Throwable $e) {
