@@ -28,6 +28,27 @@ Upload a CSV for structural analysis — headers, row counts, and column statist
 ### CSV Import
 Upload a CSV file for async validation and permanent storage. The job validates structure (headers, duplicates, column consistency), moves the file from the upload directory to permanent storage, and creates a `CsvImport` record. The import ID is written back into the task payload on completion so clients can navigate directly to the result after polling.
 
+### PDF Invoice Generation
+Upload a CSV of line items and receive a professionally formatted PDF invoice. The job validates each row, calculates line totals using rounded arithmetic, and renders a PDF with company branding, user billing details (from the user's profile), and a T&C footer. The CSV is deleted after processing regardless of outcome. The completed PDF is available via the standard task download endpoint.
+
+**Required CSV structure:**
+
+| Column | Type | Rules |
+|---|---|---|
+| `description` | string | Required, non-empty |
+| `quantity` | integer | Required, positive integer (no decimals) |
+| `unit_price` | decimal | Required, positive number |
+
+**Example:**
+```csv
+description,quantity,unit_price
+Widget A,2,9.99
+Consulting (hr),3,75.00
+Shipping,1,4.50
+```
+
+Constraints: maximum 500 line items per invoice, file size limit 5 MB.
+
 ---
 
 ## API Endpoints
@@ -69,6 +90,12 @@ All routes except `/api/login` require a Sanctum token (`Authorization: Bearer <
 | GET | `/api/imports/{id}` | Retrieve a completed import record |
 | DELETE | `/api/imports/{id}` | Delete an import and its stored file |
 | POST | `/api/imports/{id}/analyse` | Trigger analysis on an existing import (throttled: 10/min) |
+
+### PDF Invoice Generation
+
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/api/invoices` | Upload a CSV of line items to generate a PDF invoice |
 
 Routes use UUID identifiers for tasks and integer IDs for imports.
 
@@ -114,5 +141,7 @@ storage/app/private/
   uploads/{task_uuid}/          ← temporary upload location (cleaned up after processing)
   conversions/{task_uuid}/      ← converted output files + result.zip (multi-file)
   reports/{task_uuid}.csv       ← generated user export
+  analyses/{task_uuid}/         ← JSON analysis result
   imports/{task_uuid}/          ← validated and stored CSV imports
+  invoices/{task_uuid}/         ← generated PDF invoice
 ```
