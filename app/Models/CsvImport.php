@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 
 class CsvImport extends Model
 {
@@ -24,6 +25,20 @@ class CsvImport extends Model
             'headers'   => 'array',
             'row_count' => 'integer',
         ];
+    }
+
+    public function resolveRouteBinding($value, $field = null): static
+    {
+        $import = static::whereHas(
+            'task',
+            fn ($q) => $q->where('uuid', $value)
+        )->first();
+
+        if (! $import) {
+            throw (new ModelNotFoundException())->setModel(static::class);
+        }
+
+        return $import;
     }
 
     public function task(): BelongsTo

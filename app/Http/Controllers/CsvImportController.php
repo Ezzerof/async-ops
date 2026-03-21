@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\StoreCsvEmailRequest;
 use App\Http\Requests\StoreImportRequest;
 use App\Models\CsvImport;
 use App\Services\TaskService;
@@ -38,6 +39,25 @@ class CsvImportController extends Controller
             $task = $this->taskService->createAnalysisTaskFromImport(
                 user:   $request->user(),
                 import: $import,
+            );
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json($task, 201);
+    }
+
+    public function email(StoreCsvEmailRequest $request, CsvImport $import): JsonResponse
+    {
+        $this->authorize('view', $import);
+
+        try {
+            $task = $this->taskService->createBulkEmailTaskFromImport(
+                user:       $request->user(),
+                import:     $import,
+                subject:    $request->validated('subject'),
+                body:       $request->validated('body'),
+                attachment: $request->file('attachment'),
             );
         } catch (\InvalidArgumentException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
