@@ -390,6 +390,70 @@ class TaskService
      * SendBulkEmailJob per recipient via Bus::batch(), and return the Task.
      * On any failure, uploaded files and the task record are cleaned up.
      */
+    /**
+     * Read the stored CSV from the completed import, extract the `email` column,
+     * and delegate to createBulkEmailTask. Throws InvalidArgumentException if the
+     * import is not completed, the email column is missing, or no valid addresses
+     * are found.
+     */
+    public function createBulkEmailTaskFromImport(
+        User          $user,
+        CsvImport     $import,
+        string        $subject,
+        string        $body,
+        ?UploadedFile $attachment,
+    ): Task {
+        if ($import->task->status !== TaskStatus::Completed) {
+            throw new \InvalidArgumentException('Cannot send emails from an import that has not completed successfully.');
+        }
+
+        $handle = Storage::disk('local')->readStream($import->file_path);
+
+        if ($handle === null) {
+            throw new \InvalidArgumentException('Import file could not be read.');
+        }
+
+        $header = fgetcsv($handle);
+
+        if ($header === false) {
+            fclose($handle);
+            throw new \InvalidArgumentException('Import CSV is empty.');
+        }
+
+        $normalised = array_map('strtolower', array_map('trim', $header));
+        $emailIndex = array_search('email', $normalised, strict: true);
+
+        if ($emailIndex === false) {
+            fclose($handle);
+            throw new \InvalidArgumentException('Import CSV must contain an "email" column.');
+        }
+
+        $recipients = [];
+
+        while (($row = fgetcsv($handle)) !== false) {
+            $value = isset($row[$emailIndex]) ? strtolower(trim($row[$emailIndex])) : '';
+            if ($value !== '') {
+                $recipients[] = $value;
+            }
+        }
+
+        fclose($handle);
+
+        $recipients = array_values(array_unique($recipients));
+
+        if (empty($recipients)) {
+            throw new \InvalidArgumentException('No email addresses found in the import CSV.');
+        }
+
+        return $this->createBulkEmailTask(
+            user:       $user,
+            recipients: $recipients,
+            subject:    $subject,
+            body:       $body,
+            attachment: $attachment,
+        );
+    }
+
     public function createBulkEmailTask(
         User          $user,
         array         $recipients,
