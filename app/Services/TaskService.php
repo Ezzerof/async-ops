@@ -10,6 +10,7 @@ use App\Jobs\ConvertFileJob;
 use App\Jobs\GenerateInvoiceJob;
 use App\Jobs\GenerateReportJob;
 use App\Jobs\ImportCsvJob;
+use App\Jobs\SendBulkEmailJob;
 use App\Models\CsvImport;
 use App\Models\Task;
 use App\Models\User;
@@ -17,7 +18,10 @@ use Illuminate\Bus\Batch;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HtmlSanitizer\HtmlSanitizer;
+use Symfony\Component\HtmlSanitizer\HtmlSanitizerConfig;
 use ZipArchive;
 
 class TaskService
@@ -379,6 +383,153 @@ class TaskService
         $task->update(['payload' => $payload]);
 
         return $task;
+    }
+
+    /**
+     * Sanitise the body, optionally store a PDF attachment, dispatch one
+     * SendBulkEmailJob per recipient via Bus::batch(), and return the Task.
+     * On any failure, uploaded files and the task record are cleaned up.
+     */
+    public function createBulkEmailTask(
+        User          $user,
+        array         $recipients,
+        string        $subject,
+        string        $body,
+        ?UploadedFile $attachment,
+    ): Task {
+        if (empty($recipients)) {
+            throw new \InvalidArgumentException('Recipients list must not be empty.');
+        }
+
+        $sanitizer = new HtmlSanitizer(
+            (new HtmlSanitizerConfig())
+                ->allowSafeElements()
+                ->allowAttribute('href', ['a'])
+                ->allowAttribute('src', ['img'])
+                ->forceHttpsUrls()
+        );
+
+        $cleanBody = $sanitizer->sanitize($body);
+
+        $task = $this->createTask(
+            user:    $user,
+            type:    TaskType::BulkEmail->value,
+            payload: [
+                'subject'         => $subject,
+                'body'            => $cleanBody,
+                'recipients'      => $recipients,
+                'attachment_path' => null,
+            ],
+        );
+
+        try {
+            if ($attachment !== null) {
+                $attachmentPath = 'emails/' . $task->uuid . '/attachment_' . Str::uuid() . '.pdf';
+                $stored         = $attachment->storeAs(
+                    path:     'emails/' . $task->uuid,
+                    name:     basename($attachmentPath),
+                    options:  'local',
+                );
+
+                if ($stored === false) {
+                    throw new \RuntimeException('Failed to store attachment: ' . $attachment->getClientOriginalName());
+                }
+
+                $task->update(['payload' => array_merge($task->payload, ['attachment_path' => $attachmentPath])]);
+            }
+
+            $jobs = array_map(
+                fn (string $email) => new SendBulkEmailJob($task, $email),
+                $recipients,
+            );
+
+            $taskId = $task->id;
+
+            $batch = Bus::batch($jobs)
+                ->allowFailures()
+                ->then(function (Batch $batch) use ($taskId): void {
+                    $task = Task::find($taskId);
+
+                    if ($task === null) {
+                        return;
+                    }
+
+                    $task     = $task->refresh();
+                    $payload  = $task->payload ?? [];
+                    $recipients      = $payload['recipients'] ?? [];
+                    $deliveryStatus  = $payload['delivery_status'] ?? [];
+
+                    // Build CSV rows from the original recipients list so every
+                    // recipient appears even if no job wrote back a status.
+                    $rows = [];
+                    foreach ($recipients as $email) {
+                        $rows[] = [$email, $deliveryStatus[$email] ?? 'unknown'];
+                    }
+
+                    // All-failed (or all-unknown) means no emails were delivered.
+                    $anyDelivered = collect($rows)->contains(fn ($r) => $r[1] === 'sent');
+
+                    if (! $anyDelivered) {
+                        $task->update([
+                            'status'        => TaskStatus::Failed,
+                            'error_message' => 'No emails were delivered successfully.',
+                        ]);
+                        return;
+                    }
+
+                    // Write delivery report CSV.
+                    $reportPath = 'emails/' . $task->uuid . '/report.csv';
+                    $csv        = "recipient,status\n";
+                    foreach ($rows as [$email, $status]) {
+                        $csv .= $email . ',' . $status . "\n";
+                    }
+                    Storage::disk('local')->put($reportPath, $csv);
+
+                    // Delete attachment at the exact stored path only — never a wildcard.
+                    $attachmentPath = $payload['attachment_path'] ?? null;
+                    if ($attachmentPath !== null) {
+                        $expectedPrefix = 'emails/' . $task->uuid . '/';
+                        if (str_starts_with($attachmentPath, $expectedPrefix)) {
+                            Storage::disk('local')->delete($attachmentPath);
+                        }
+                    }
+
+                    $task->update([
+                        'status'      => TaskStatus::Completed,
+                        'progress'    => 100,
+                        'result_path' => $reportPath,
+                    ]);
+                })
+                ->catch(function (Batch $batch, \Throwable $e) use ($taskId): void {
+                    $task = Task::find($taskId);
+
+                    if ($task === null) {
+                        return;
+                    }
+
+                    $task = $task->refresh();
+
+                    if ($task->status === TaskStatus::Completed || $task->status === TaskStatus::Failed) {
+                        return;
+                    }
+
+                    $task->update([
+                        'status'        => TaskStatus::Failed,
+                        'error_message' => 'Batch processing failed unexpectedly.',
+                    ]);
+                })
+                ->dispatch();
+
+            $payload             = $task->payload ?? [];
+            $payload['batch_id'] = $batch->id;
+            $task->update(['payload' => $payload]);
+
+            return $task;
+        } catch (\Throwable $e) {
+            Storage::disk('local')->deleteDirectory('emails/' . $task->uuid);
+            $task->delete();
+            throw $e;
+        }
     }
 
     // -------------------------------------------------------------------------
