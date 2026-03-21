@@ -10,6 +10,7 @@ enum TaskType: string
     case DataAnalysis      = 'data_analysis';
     case CsvImport         = 'csv_import';
     case InvoiceGeneration = 'invoice_generation';
+    case BulkEmail         = 'bulk_email';
 
    
     private const MIME_MAP = [
@@ -46,6 +47,10 @@ enum TaskType: string
                 'content_type' => 'application/pdf',
             ],        
             self::FileConversion => $this->conversionMeta($uuid, $resultPath),
+            self::BulkEmail      => [
+                'filename'     => 'email-report-' . $uuid . '.csv',
+                'content_type' => 'text/csv',
+            ],
             self::CsvImport      => throw new \LogicException(
                 'CsvImport tasks do not produce a downloadable file.'
             ),
