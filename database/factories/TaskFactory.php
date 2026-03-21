@@ -19,7 +19,7 @@ class TaskFactory extends Factory
         return [
             'user_id'       => User::factory(),
             'uuid'          => (string) Str::uuid(),
-            'type'          => TaskType::UserExport->value,
+            'type'          => TaskType::Report->value,
             'payload'       => null,
             'status'        => TaskStatus::Pending,
             'progress'      => 0,
