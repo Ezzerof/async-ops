@@ -79,7 +79,7 @@ class TaskServiceTest extends TestCase
     public function test_with_live_progress_returns_original_task_when_no_batch_id_for_report_task(): void
     {
         $task = Task::factory()->pending()->create([
-            'type'    => TaskType::UserExport->value,
+            'type'    => TaskType::Report->value,
             'payload' => null,
         ]);
 
@@ -212,7 +212,7 @@ class TaskServiceTest extends TestCase
     public function test_resolve_download_meta_returns_csv_content_type_for_report_task(): void
     {
         $task = Task::factory()->completed()->create([
-            'type'        => TaskType::UserExport->value,
+            'type'        => TaskType::Report->value,
             'result_path' => 'reports/some-file.csv',
         ]);
 
@@ -224,7 +224,7 @@ class TaskServiceTest extends TestCase
     public function test_resolve_download_meta_uses_report_prefix_for_report_task(): void
     {
         $task = Task::factory()->completed()->create([
-            'type'        => TaskType::UserExport->value,
+            'type'        => TaskType::Report->value,
             'result_path' => 'reports/some-file.csv',
         ]);
 

@@ -5,7 +5,7 @@ namespace App\Enums;
 enum TaskType: string
 {
 
-    case UserExport        = 'user_export';
+    case Report            = 'report';
     case FileConversion    = 'file_conversion';
     case DataAnalysis      = 'data_analysis';
     case CsvImport         = 'csv_import';
@@ -34,7 +34,7 @@ enum TaskType: string
     public function downloadMeta(string $uuid, ?string $resultPath): array
     {
         return match ($this) {
-            self::UserExport     => [
+            self::Report         => [
                 'filename'     => 'report-' . $uuid . '.csv',
                 'content_type' => 'text/csv',
             ],
