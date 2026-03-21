@@ -19,10 +19,10 @@ class TaskStoreTest extends TestCase
         $user = User::factory()->create();
 
         $response = $this->actingAs($user, 'sanctum')
-            ->postJson('/api/tasks', ['type' => 'user_export']);
+            ->postJson('/api/tasks', ['type' => 'report']);
 
         $response->assertStatus(201)
-            ->assertJsonFragment(['type' => 'user_export', 'user_id' => $user->id])
+            ->assertJsonFragment(['type' => 'report', 'user_id' => $user->id])
             ->assertJsonFragment(['status' => 'pending', 'progress' => 0]);
     }
 
@@ -33,11 +33,11 @@ class TaskStoreTest extends TestCase
         $user = User::factory()->create();
 
         $this->actingAs($user, 'sanctum')
-            ->postJson('/api/tasks', ['type' => 'user_export']);
+            ->postJson('/api/tasks', ['type' => 'report']);
 
         $this->assertDatabaseHas('tasks', [
             'user_id' => $user->id,
-            'type'    => 'user_export',
+            'type'    => 'report',
             'status'  => 'pending',
             'progress' => 0,
         ]);
@@ -50,17 +50,17 @@ class TaskStoreTest extends TestCase
         $user = User::factory()->create();
 
         $this->actingAs($user, 'sanctum')
-            ->postJson('/api/tasks', ['type' => 'user_export']);
+            ->postJson('/api/tasks', ['type' => 'report']);
 
         Queue::assertPushed(GenerateReportJob::class, function (GenerateReportJob $job) use ($user): bool {
             return $job->task->user_id === $user->id
-                && $job->task->type === 'user_export';
+                && $job->task->type === 'report';
         });
     }
 
     public function test_unauthenticated_request_returns_401(): void
     {
-        $response = $this->postJson('/api/tasks', ['type' => 'user_export']);
+        $response = $this->postJson('/api/tasks', ['type' => 'report']);
 
         $response->assertStatus(401);
     }
@@ -92,7 +92,7 @@ class TaskStoreTest extends TestCase
         $user = User::factory()->create();
 
         $this->actingAs($user, 'sanctum')
-            ->postJson('/api/tasks', ['type' => 'user_export']);
+            ->postJson('/api/tasks', ['type' => 'report']);
 
         $task = Task::first();
 
@@ -107,7 +107,7 @@ class TaskStoreTest extends TestCase
         $user = User::factory()->create();
 
         $response = $this->actingAs($user, 'sanctum')
-            ->postJson('/api/tasks', ['type' => 'user_export']);
+            ->postJson('/api/tasks', ['type' => 'report']);
 
         $uuid = $response->json('uuid');
 
@@ -124,7 +124,7 @@ class TaskStoreTest extends TestCase
 
         $this->actingAs($user, 'sanctum')
             ->postJson('/api/tasks', [
-                'type'     => 'user_export',
+                'type'     => 'report',
                 'status'   => 'completed',
                 'progress' => 100,
             ]);
@@ -144,7 +144,7 @@ class TaskStoreTest extends TestCase
         $user = User::factory()->create();
 
         $this->actingAs($user, 'sanctum')
-            ->postJson('/api/tasks', ['type' => 'user_export']);
+            ->postJson('/api/tasks', ['type' => 'report']);
 
         Queue::assertPushed(GenerateReportJob::class, function (GenerateReportJob $job): bool {
             return Str::isUuid($job->task->uuid);
@@ -159,7 +159,7 @@ class TaskStoreTest extends TestCase
         $user = User::factory()->create();
 
         $response = $this->actingAs($user, 'sanctum')
-            ->postJson('/api/tasks', ['type' => 'user_export']);
+            ->postJson('/api/tasks', ['type' => 'report']);
 
         $uuid = $response->json('uuid');
         $task = Task::first();

@@ -23,7 +23,6 @@ class GenerateReportJobTest extends TestCase
         Storage::fake('local');
 
         $user = User::factory()->create();
-        User::factory()->count(2)->create();
         $task = Task::factory()->pending()->create(['user_id' => $user->id]);
 
         dispatch(new GenerateReportJob($task));
@@ -42,7 +41,7 @@ class GenerateReportJobTest extends TestCase
 
         dispatch(new GenerateReportJob($task));
 
-        $expectedPath = 'reports/' . $task->id . '.csv';
+        $expectedPath = 'reports/' . $task->uuid . '.csv';
 
         $this->assertSame($expectedPath, $task->fresh()->result_path);
         Storage::disk('local')->assertExists($expectedPath);
@@ -107,53 +106,34 @@ class GenerateReportJobTest extends TestCase
 
         dispatch(new GenerateReportJob($task));
 
-        $content = Storage::disk('local')->get('reports/' . $task->id . '.csv');
+        $content = Storage::disk('local')->get('reports/' . $task->uuid . '.csv');
         $rows    = array_values(array_filter(explode("\n", trim($content))));
         $header  = str_getcsv($rows[0]);
 
-        $this->assertSame(['id', 'name', 'email', 'created_at'], $header);
+        $this->assertSame([
+            'order_id', 'sale_date', 'customer_name', 'customer_email',
+            'product', 'category', 'quantity', 'unit_price', 'total', 'region', 'salesperson',
+        ], $header);
     }
 
-    public function test_csv_contains_one_data_row_per_user(): void
+    public function test_csv_contains_exactly_50_data_rows(): void
     {
         Storage::fake('local');
 
         $user = User::factory()->create();
-        User::factory()->count(4)->create();
         $task = Task::factory()->pending()->create(['user_id' => $user->id]);
 
         dispatch(new GenerateReportJob($task));
 
-        $content  = Storage::disk('local')->get('reports/' . $task->id . '.csv');
+        $content  = Storage::disk('local')->get('reports/' . $task->uuid . '.csv');
         $rows     = array_values(array_filter(explode("\n", trim($content))));
         $dataRows = array_slice($rows, 1);
 
-        $this->assertCount(5, $dataRows);
+        $this->assertCount(50, $dataRows);
     }
 
-    public function test_csv_data_row_matches_known_user_values(): void
+    public function test_csv_data_row_has_correct_column_count(): void
     {
-        Storage::fake('local');
-
-        $user = User::factory()->create(['name' => 'Alice Example', 'email' => 'alice@example.com']);
-        $task = Task::factory()->pending()->create(['user_id' => $user->id]);
-
-        dispatch(new GenerateReportJob($task));
-
-        $content = Storage::disk('local')->get('reports/' . $task->id . '.csv');
-        $rows    = array_values(array_filter(explode("\n", trim($content))));
-        $dataRow = str_getcsv($rows[1]);
-
-        $this->assertSame((string) $user->id, $dataRow[0]);
-        $this->assertSame('Alice Example', $dataRow[1]);
-        $this->assertSame('alice@example.com', $dataRow[2]);
-        $this->assertNotEmpty($dataRow[3]);
-    }
-
-    public function test_csv_completes_cleanly_with_minimal_user_count(): void
-    {
-        // The FK constraint requires at least one user (the task owner).
-        // This is the minimum-scale path: max(1, ceil(1/10)) = 1 threshold.
         Storage::fake('local');
 
         $user = User::factory()->create();
@@ -161,11 +141,33 @@ class GenerateReportJobTest extends TestCase
 
         dispatch(new GenerateReportJob($task));
 
-        $content  = Storage::disk('local')->get('reports/' . $task->id . '.csv');
-        $rows     = array_values(array_filter(explode("\n", trim($content))));
+        $content = Storage::disk('local')->get('reports/' . $task->uuid . '.csv');
+        $rows    = array_values(array_filter(explode("\n", trim($content))));
+        $dataRow = str_getcsv($rows[1]);
 
-        $this->assertCount(2, $rows); // header + 1 data row
-        $this->assertSame(TaskStatus::Completed, $task->fresh()->status);
+        $this->assertCount(11, $dataRow);
+    }
+
+    public function test_csv_total_equals_quantity_times_unit_price(): void
+    {
+        Storage::fake('local');
+
+        $user = User::factory()->create();
+        $task = Task::factory()->pending()->create(['user_id' => $user->id]);
+
+        dispatch(new GenerateReportJob($task));
+
+        $content = Storage::disk('local')->get('reports/' . $task->uuid . '.csv');
+        $rows    = array_values(array_filter(explode("\n", trim($content))));
+
+        foreach (array_slice($rows, 1) as $row) {
+            $cols     = str_getcsv($row);
+            $quantity  = (int) $cols[6];
+            $unitPrice = (float) $cols[7];
+            $total     = (float) $cols[8];
+
+            $this->assertEqualsWithDelta(round($quantity * $unitPrice, 2), $total, 0.001);
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -225,7 +227,7 @@ class GenerateReportJobTest extends TestCase
 
         dispatch(new GenerateReportJob($task));
 
-        Storage::disk('local')->assertExists('reports/' . $task->id . '.csv');
+        Storage::disk('local')->assertExists('reports/' . $task->uuid . '.csv');
         $this->assertEmpty(Storage::disk('public')->allFiles());
     }
 }
