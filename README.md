@@ -14,9 +14,6 @@ A Laravel API demonstrating async background task processing — from HTTP reque
 
 ## Features
 
-### Report Generation
-A user authenticates, requests a report via the API, and the system creates a `Task` record and dispatches a background job. The job generates a CSV of all users, tracking progress incrementally. Once complete, the file is available for download through a dedicated endpoint.
-
 ### File Conversion
 Upload one or more files and convert them between formats (CSV ↔ JSON, XML → JSON). Each file is processed as an individual job inside a `Bus::batch()`. Progress is derived live from the batch rather than written per-job. Multi-file results are zipped automatically for download.
 
@@ -29,7 +26,16 @@ Upload a CSV for structural analysis — headers, row counts, and column statist
 Upload a CSV file for async validation and permanent storage. The job validates structure (headers, duplicates, column consistency), moves the file from the upload directory to permanent storage, and creates a `CsvImport` record. The import ID is written back into the task payload on completion so clients can navigate directly to the result after polling.
 
 ### Bulk Email Sending
-Submit a list of recipients (up to a configurable max, default 3), a subject, an HTML body, and an optional PDF attachment. The system fans out one job per recipient via `Bus::batch()` with `allowFailures()` — partial SMTP failures are tracked individually without cancelling the rest. The HTML body is sanitised server-side before storage using `symfony/html-sanitizer`. On completion, a delivery report CSV is generated listing each recipient's outcome (`sent`/`failed`/`unknown`) and made available via the standard task download endpoint. The attachment is deleted automatically after the batch completes.
+Upload a CSV of client emails, then trigger a bulk send referencing that import. The system reads the `email` column from the stored CSV, fans out one job per recipient via `Bus::batch()` with `allowFailures()` — partial SMTP failures are tracked individually without cancelling the rest. The HTML body is sanitised server-side before storage using `symfony/html-sanitizer`. An optional PDF attachment can be included. On completion, a delivery report CSV is generated listing each recipient's outcome (`sent`/`failed`/`unknown`) and made available via the standard task download endpoint. The attachment is deleted automatically after the batch completes.
+
+**Required CSV structure:**
+
+```csv
+email
+alice@example.com
+```
+
+The `email` column is the only required column (case-insensitive). All other columns are ignored. Blank values and duplicates are skipped automatically.
 
 Rate limited to **5 requests per minute**.
 
@@ -92,9 +98,10 @@ All routes except `/api/login` require a Sanctum token (`Authorization: Bearer <
 | Method | Endpoint | Description |
 |---|---|---|
 | POST | `/api/imports` | Upload a CSV for async import (throttled: 10/min) |
-| GET | `/api/imports/{id}` | Retrieve a completed import record |
-| DELETE | `/api/imports/{id}` | Delete an import and its stored file |
-| POST | `/api/imports/{id}/analyse` | Trigger analysis on an existing import (throttled: 10/min) |
+| GET | `/api/imports/{uuid}` | Retrieve a completed import record |
+| DELETE | `/api/imports/{uuid}` | Delete an import and its stored file |
+| POST | `/api/imports/{uuid}/analyse` | Trigger analysis on an existing import (throttled: 10/min) |
+| POST | `/api/imports/{uuid}/email` | Send bulk email to recipients in the imported CSV (throttled: 5/min) |
 
 ### PDF Invoice Generation
 
@@ -102,13 +109,7 @@ All routes except `/api/login` require a Sanctum token (`Authorization: Bearer <
 |---|---|---|
 | POST | `/api/invoices` | Upload a CSV of line items to generate a PDF invoice |
 
-### Bulk Email Sending
-
-| Method | Endpoint | Description |
-|---|---|---|
-| POST | `/api/emails` | Send a bulk email to a list of recipients (throttled: 5/min) |
-
-Routes use UUID identifiers for tasks and integer IDs for imports.
+Routes use UUID identifiers for all tasks and imports.
 
 ---
 
