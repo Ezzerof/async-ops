@@ -28,6 +28,11 @@ Upload a CSV for structural analysis — headers, row counts, and column statist
 ### CSV Import
 Upload a CSV file for async validation and permanent storage. The job validates structure (headers, duplicates, column consistency), moves the file from the upload directory to permanent storage, and creates a `CsvImport` record. The import ID is written back into the task payload on completion so clients can navigate directly to the result after polling.
 
+### Bulk Email Sending
+Submit a list of recipients (up to a configurable max, default 3), a subject, an HTML body, and an optional PDF attachment. The system fans out one job per recipient via `Bus::batch()` with `allowFailures()` — partial SMTP failures are tracked individually without cancelling the rest. The HTML body is sanitised server-side before storage using `symfony/html-sanitizer`. On completion, a delivery report CSV is generated listing each recipient's outcome (`sent`/`failed`/`unknown`) and made available via the standard task download endpoint. The attachment is deleted automatically after the batch completes.
+
+Rate limited to **5 requests per minute**.
+
 ### PDF Invoice Generation
 Upload a CSV of line items and receive a professionally formatted PDF invoice. The job validates each row, calculates line totals using rounded arithmetic, and renders a PDF with company branding, user billing details (from the user's profile), and a T&C footer. The CSV is deleted after processing regardless of outcome. The completed PDF is available via the standard task download endpoint.
 
@@ -97,6 +102,12 @@ All routes except `/api/login` require a Sanctum token (`Authorization: Bearer <
 |---|---|---|
 | POST | `/api/invoices` | Upload a CSV of line items to generate a PDF invoice |
 
+### Bulk Email Sending
+
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/api/emails` | Send a bulk email to a list of recipients (throttled: 5/min) |
+
 Routes use UUID identifiers for tasks and integer IDs for imports.
 
 ---
@@ -144,4 +155,6 @@ storage/app/private/
   analyses/{task_uuid}/         ← JSON analysis result
   imports/{task_uuid}/          ← validated and stored CSV imports
   invoices/{task_uuid}/         ← generated PDF invoice
+  emails/{task_uuid}/attachment_{uuid}.pdf  ← uploaded PDF attachment (deleted after batch completes)
+  emails/{task_uuid}/report.csv             ← delivery report CSV, survives for download
 ```
