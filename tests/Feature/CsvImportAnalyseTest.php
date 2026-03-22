@@ -45,10 +45,10 @@ class CsvImportAnalyseTest extends TestCase
     {
         Queue::fake();
         Storage::fake('local');
-        [$user, , $import] = $this->makeCompletedImport();
+        [$user, $task] = $this->makeCompletedImport();
 
         $response = $this->actingAs($user, 'sanctum')
-            ->postJson('/api/imports/' . $import->id . '/analyse');
+            ->postJson('/api/imports/' . $task->uuid . '/analyse');
 
         $response->assertStatus(201)
             ->assertJsonFragment([
@@ -61,10 +61,10 @@ class CsvImportAnalyseTest extends TestCase
     {
         Queue::fake();
         Storage::fake('local');
-        [$user, , $import] = $this->makeCompletedImport();
+        [$user, $task] = $this->makeCompletedImport();
 
         $this->actingAs($user, 'sanctum')
-            ->postJson('/api/imports/' . $import->id . '/analyse');
+            ->postJson('/api/imports/' . $task->uuid . '/analyse');
 
         Queue::assertPushed(AnalyseDataJob::class, 1);
     }
@@ -76,7 +76,7 @@ class CsvImportAnalyseTest extends TestCase
         [$user, $importTask, $import] = $this->makeCompletedImport();
 
         $response = $this->actingAs($user, 'sanctum')
-            ->postJson('/api/imports/' . $import->id . '/analyse');
+            ->postJson('/api/imports/' . $importTask->uuid . '/analyse');
 
         $expectedFilePath = 'imports/' . $importTask->uuid . '/data.csv';
         $this->assertSame($expectedFilePath, $response->json('payload.file'));
@@ -86,12 +86,12 @@ class CsvImportAnalyseTest extends TestCase
     {
         Queue::fake();
         Storage::fake('local');
-        [$user, , $import] = $this->makeCompletedImport();
+        [$user, $task] = $this->makeCompletedImport();
 
         $responseA = $this->actingAs($user, 'sanctum')
-            ->postJson('/api/imports/' . $import->id . '/analyse');
+            ->postJson('/api/imports/' . $task->uuid . '/analyse');
         $responseB = $this->actingAs($user, 'sanctum')
-            ->postJson('/api/imports/' . $import->id . '/analyse');
+            ->postJson('/api/imports/' . $task->uuid . '/analyse');
 
         $responseA->assertStatus(201);
         $responseB->assertStatus(201);
@@ -106,9 +106,9 @@ class CsvImportAnalyseTest extends TestCase
     public function test_unauthenticated_request_returns_401(): void
     {
         Storage::fake('local');
-        [, , $import] = $this->makeCompletedImport();
+        [, $task] = $this->makeCompletedImport();
 
-        $this->postJson('/api/imports/' . $import->id . '/analyse')
+        $this->postJson('/api/imports/' . $task->uuid . '/analyse')
             ->assertStatus(401);
     }
 
@@ -116,11 +116,11 @@ class CsvImportAnalyseTest extends TestCase
     {
         Queue::fake();
         Storage::fake('local');
-        [, , $import] = $this->makeCompletedImport();
+        [, $task] = $this->makeCompletedImport();
         $other = User::factory()->create();
 
         $this->actingAs($other, 'sanctum')
-            ->postJson('/api/imports/' . $import->id . '/analyse')
+            ->postJson('/api/imports/' . $task->uuid . '/analyse')
             ->assertStatus(403);
     }
 
@@ -147,7 +147,7 @@ class CsvImportAnalyseTest extends TestCase
         ]);
 
         $response = $this->actingAs($user, 'sanctum')
-            ->postJson('/api/imports/' . $import->id . '/analyse');
+            ->postJson('/api/imports/' . $task->uuid . '/analyse');
 
         $response->assertStatus(422)
             ->assertJsonFragment(['message' => 'Cannot analyse an import that has not completed successfully.']);
@@ -172,7 +172,7 @@ class CsvImportAnalyseTest extends TestCase
         ]);
 
         $this->actingAs($user, 'sanctum')
-            ->postJson('/api/imports/' . $import->id . '/analyse')
+            ->postJson('/api/imports/' . $task->uuid . '/analyse')
             ->assertStatus(422);
     }
 }

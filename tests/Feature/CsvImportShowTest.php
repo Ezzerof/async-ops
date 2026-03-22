@@ -38,10 +38,10 @@ class CsvImportShowTest extends TestCase
 
     public function test_owner_can_view_import_and_gets_200(): void
     {
-        [$user, , $import] = $this->makeImport();
+        [$user, $task, $import] = $this->makeImport();
 
         $response = $this->actingAs($user, 'sanctum')
-            ->getJson('/api/imports/' . $import->id);
+            ->getJson('/api/imports/' . $task->uuid);
 
         $response->assertStatus(200)
             ->assertJsonFragment([
@@ -53,10 +53,10 @@ class CsvImportShowTest extends TestCase
 
     public function test_file_path_is_not_exposed_in_response(): void
     {
-        [$user, , $import] = $this->makeImport();
+        [$user, $task] = $this->makeImport();
 
         $response = $this->actingAs($user, 'sanctum')
-            ->getJson('/api/imports/' . $import->id);
+            ->getJson('/api/imports/' . $task->uuid);
 
         $response->assertStatus(200);
         $this->assertArrayNotHasKey('file_path', $response->json());
@@ -64,10 +64,10 @@ class CsvImportShowTest extends TestCase
 
     public function test_show_returns_correct_headers(): void
     {
-        [$user, , $import] = $this->makeImport();
+        [$user, $task] = $this->makeImport();
 
         $response = $this->actingAs($user, 'sanctum')
-            ->getJson('/api/imports/' . $import->id);
+            ->getJson('/api/imports/' . $task->uuid);
 
         $response->assertStatus(200)
             ->assertJsonFragment(['headers' => ['name', 'age']]);
@@ -90,7 +90,7 @@ class CsvImportShowTest extends TestCase
         ]);
 
         $this->actingAs($user, 'sanctum')
-            ->getJson('/api/imports/' . $import->id)
+            ->getJson('/api/imports/' . $task->uuid)
             ->assertStatus(200)
             ->assertJsonFragment(['original_filename' => 'data.csv']);
     }
@@ -101,19 +101,19 @@ class CsvImportShowTest extends TestCase
 
     public function test_unauthenticated_request_returns_401(): void
     {
-        [, , $import] = $this->makeImport();
+        [, $task] = $this->makeImport();
 
-        $this->getJson('/api/imports/' . $import->id)
+        $this->getJson('/api/imports/' . $task->uuid)
             ->assertStatus(401);
     }
 
     public function test_other_user_cannot_view_import_and_gets_403(): void
     {
-        [, , $import] = $this->makeImport();
+        [, $task] = $this->makeImport();
         $other = User::factory()->create();
 
         $this->actingAs($other, 'sanctum')
-            ->getJson('/api/imports/' . $import->id)
+            ->getJson('/api/imports/' . $task->uuid)
             ->assertStatus(403);
     }
 
