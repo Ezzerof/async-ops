@@ -4,7 +4,7 @@ namespace App\Jobs;
 
 use App\Enums\TaskStatus;
 use App\Models\Task;
-use App\Models\User;
+use Faker\Factory as Faker;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Storage;
@@ -14,8 +14,17 @@ class GenerateReportJob implements ShouldQueue
 {
     use Queueable;
 
-    public int $tries = 3;
+    public int $tries   = 3;
     public int $timeout = 120;
+
+    private const TOTAL_ROWS = 50;
+    private const REGIONS    = ['North', 'South', 'East', 'West', 'Central'];
+    private const CATEGORIES = ['Electronics', 'Clothing', 'Home & Garden', 'Sports', 'Books', 'Automotive'];
+    private const PRODUCTS   = [
+        'Wireless Headphones', 'Running Shoes', 'Coffee Maker', 'Yoga Mat',
+        'Laptop Stand', 'Water Bottle', 'Desk Lamp', 'Bluetooth Speaker',
+        'Backpack', 'Smart Watch',
+    ];
 
     public function __construct(public readonly Task $task) {}
 
@@ -26,14 +35,12 @@ class GenerateReportJob implements ShouldQueue
 
     public function handle(): void
     {
-        // Fix #2 — guard against the task being deleted between dispatch and execution
         if (! Task::find((int) $this->task->id)) {
             return;
         }
 
         $this->task->refresh();
 
-        // Fix #3 — prevent re-processing if already past pending (duplicate dispatch or manual retry)
         if ($this->task->status !== TaskStatus::Pending) {
             return;
         }
@@ -43,40 +50,44 @@ class GenerateReportJob implements ShouldQueue
             'progress' => 0,
         ]);
 
-        $total      = User::count();
-        $threshold  = max(1, (int) ceil($total / 10));
+        $faker     = Faker::create();
+        $threshold = max(1, (int) ceil(self::TOTAL_ROWS / 10));
         $nextUpdate = $threshold;
-        $rowCount   = 0;
-
-        // Fix #4 — guarantee stream is closed even if an exception is thrown mid-loop
-        $stream = fopen('php://temp', 'r+');
+        $stream    = fopen('php://temp', 'r+');
 
         try {
-            fputcsv($stream, ['id', 'name', 'email', 'created_at']);
+            fputcsv($stream, [
+                'order_id', 'sale_date', 'customer_name', 'customer_email',
+                'product', 'category', 'quantity', 'unit_price', 'total', 'region', 'salesperson',
+            ]);
 
-            User::select('id', 'name', 'email', 'created_at')->cursor()->each(
-                function (User $user) use ($stream, $total, $threshold, &$rowCount, &$nextUpdate): void {
-                    fputcsv($stream, [
-                        $user->id,
-                        $user->name,
-                        $user->email,
-                        $user->created_at,
-                    ]);
+            for ($i = 1; $i <= self::TOTAL_ROWS; $i++) {
+                $quantity  = $faker->numberBetween(1, 10);
+                $unitPrice = round($faker->randomFloat(2, 5, 500), 2);
 
-                    $rowCount++;
+                fputcsv($stream, [
+                    'ORD-' . str_pad((string) $faker->numberBetween(1, 99999), 5, '0', STR_PAD_LEFT),
+                    $faker->dateTimeBetween('-1 year', 'now')->format('Y-m-d'),
+                    $faker->name(),
+                    $faker->safeEmail(),
+                    self::PRODUCTS[array_rand(self::PRODUCTS)],
+                    self::CATEGORIES[array_rand(self::CATEGORIES)],
+                    $quantity,
+                    number_format($unitPrice, 2, '.', ''),
+                    number_format(round($quantity * $unitPrice, 2), 2, '.', ''),
+                    self::REGIONS[array_rand(self::REGIONS)],
+                    $faker->name(),
+                ]);
 
-                    if ($rowCount >= $nextUpdate) {
-                        $progress = (int) min(99, round($rowCount / $total * 100));
-                        $this->task->update(['progress' => $progress]);
-                        $nextUpdate += $threshold;
-                    }
+                if ($i >= $nextUpdate) {
+                    $this->task->update(['progress' => (int) min(99, round($i / self::TOTAL_ROWS * 100))]);
+                    $nextUpdate += $threshold;
                 }
-            );
+            }
 
             rewind($stream);
 
-            // Fix #1 — explicitly cast ID to int, defensive against any future path construction using user input
-            $path = 'reports/' . ((int) $this->task->id) . '.csv';
+            $path = 'reports/' . $this->task->uuid . '.csv';
             Storage::disk('local')->put($path, $stream);
 
             $this->task->update([
@@ -91,7 +102,6 @@ class GenerateReportJob implements ShouldQueue
 
     public function failed(Throwable $e): void
     {
-        // Fix #2 — task may no longer exist if the user was deleted; skip silently
         if (! Task::find((int) $this->task->id)) {
             return;
         }

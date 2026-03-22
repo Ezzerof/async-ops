@@ -115,4 +115,6 @@ return [
         'name' => env('MAIL_FROM_NAME', env('APP_NAME', 'Laravel')),
     ],
 
+    'bulk_max_recipients' => env('MAIL_BULK_MAX_RECIPIENTS', 3),
+
 ];

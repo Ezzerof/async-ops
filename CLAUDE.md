@@ -78,7 +78,24 @@ POST   /api/tasks
 GET    /api/tasks/{task}             ← route key is UUID
 GET    /api/tasks/{task}/download
 POST   /api/conversions
+POST   /api/imports                  ← upload CSV file
+GET    /api/imports/{import}         ← route key is task UUID
+DELETE /api/imports/{import}
+POST   /api/imports/{import}/analyse
+POST   /api/imports/{import}/email   ← send bulk email to recipients in CSV
 ```
+
+### Bulk email CSV format
+
+The uploaded CSV must contain an `email` column (case-insensitive). All other columns are ignored.
+
+```
+email
+alice@example.com
+bob@example.com
+```
+
+Blank values and duplicates are skipped automatically.
 
 ---
 

@@ -28,6 +28,20 @@ Upload a CSV for structural analysis — headers, row counts, and column statist
 ### CSV Import
 Upload a CSV file for async validation and permanent storage. The job validates structure (headers, duplicates, column consistency), moves the file from the upload directory to permanent storage, and creates a `CsvImport` record. The import ID is written back into the task payload on completion so clients can navigate directly to the result after polling.
 
+### Bulk Email Sending
+Upload a CSV of client emails, then trigger a bulk send referencing that import. The system reads the `email` column from the stored CSV, fans out one job per recipient via `Bus::batch()` with `allowFailures()` — partial SMTP failures are tracked individually without cancelling the rest. The HTML body is sanitised server-side before storage using `symfony/html-sanitizer`. An optional PDF attachment can be included. On completion, a delivery report CSV is generated listing each recipient's outcome (`sent`/`failed`/`unknown`) and made available via the standard task download endpoint. The attachment is deleted automatically after the batch completes.
+
+**Required CSV structure:**
+
+```csv
+email
+alice@example.com
+```
+
+The `email` column is the only required column (case-insensitive). All other columns are ignored. Blank values and duplicates are skipped automatically.
+
+Rate limited to **5 requests per minute**.
+
 ### PDF Invoice Generation
 Upload a CSV of line items and receive a professionally formatted PDF invoice. The job validates each row, calculates line totals using rounded arithmetic, and renders a PDF with company branding, user billing details (from the user's profile), and a T&C footer. The CSV is deleted after processing regardless of outcome. The completed PDF is available via the standard task download endpoint.
 
@@ -87,9 +101,10 @@ All routes except `/api/login` require a Sanctum token (`Authorization: Bearer <
 | Method | Endpoint | Description |
 |---|---|---|
 | POST | `/api/imports` | Upload a CSV for async import (throttled: 10/min) |
-| GET | `/api/imports/{id}` | Retrieve a completed import record |
-| DELETE | `/api/imports/{id}` | Delete an import and its stored file |
-| POST | `/api/imports/{id}/analyse` | Trigger analysis on an existing import (throttled: 10/min) |
+| GET | `/api/imports/{uuid}` | Retrieve a completed import record |
+| DELETE | `/api/imports/{uuid}` | Delete an import and its stored file |
+| POST | `/api/imports/{uuid}/analyse` | Trigger analysis on an existing import (throttled: 10/min) |
+| POST | `/api/imports/{uuid}/email` | Send bulk email to recipients in the imported CSV (throttled: 5/min) |
 
 ### PDF Invoice Generation
 
@@ -97,7 +112,7 @@ All routes except `/api/login` require a Sanctum token (`Authorization: Bearer <
 |---|---|---|
 | POST | `/api/invoices` | Upload a CSV of line items to generate a PDF invoice |
 
-Routes use UUID identifiers for tasks and integer IDs for imports.
+Routes use UUID identifiers for all tasks and imports.
 
 ---
 
@@ -144,4 +159,6 @@ storage/app/private/
   analyses/{task_uuid}/         ← JSON analysis result
   imports/{task_uuid}/          ← validated and stored CSV imports
   invoices/{task_uuid}/         ← generated PDF invoice
+  emails/{task_uuid}/attachment_{uuid}.pdf  ← uploaded PDF attachment (deleted after batch completes)
+  emails/{task_uuid}/report.csv             ← delivery report CSV, survives for download
 ```
