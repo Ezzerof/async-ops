@@ -15,7 +15,7 @@ A Laravel API demonstrating async background task processing — from HTTP reque
 ## Features
 
 ### Report Generation
-Submit a task with `POST /api/tasks` (`"type": "report"`) and `GenerateReportJob` generates a 50-row synthetic sales report CSV asynchronously. Progress is tracked incrementally and polled via `GET /api/tasks/{uuid}`. The completed file is downloaded via `GET /api/tasks/{uuid}/download`.
+Submit a task with `POST /api/tasks` (`"type": "report"`) to generate a 50-row synthetic sales report CSV asynchronously. Progress is tracked incrementally and polled via `GET /api/tasks/{uuid}`. The completed file is downloaded via `GET /api/tasks/{uuid}/download`.
 
 ### File Conversion
 Upload one or more files and convert them between formats (CSV ↔ JSON, XML → JSON). Each file is processed as an individual job inside a `Bus::batch()`. Progress is derived live from the batch rather than written per-job. Multi-file results are zipped automatically for download.
@@ -73,6 +73,7 @@ All routes except `/api/login` require a Sanctum token (`Authorization: Bearer <
 
 | Method | Endpoint | Description |
 |---|---|---|
+| POST | `/api/register` | Register a new user |
 | POST | `/api/login` | Obtain a Sanctum token |
 | POST | `/api/logout` | Revoke current token |
 
@@ -80,7 +81,7 @@ All routes except `/api/login` require a Sanctum token (`Authorization: Bearer <
 
 | Method | Endpoint | Description |
 |---|---|---|
-| POST | `/api/tasks` | Request a new report task |
+| POST | `/api/tasks` | Dispatch a new background task |
 | GET | `/api/tasks/{uuid}` | Poll task status and progress |
 | GET | `/api/tasks/{uuid}/download` | Download the completed file |
 
@@ -155,7 +156,7 @@ The test environment uses `QUEUE_CONNECTION=sync` — no queue worker needed.
 storage/app/private/
   uploads/{task_uuid}/          ← temporary upload location (cleaned up after processing)
   conversions/{task_uuid}/      ← converted output files + result.zip (multi-file)
-  reports/{task_uuid}.csv       ← generated user export
+  reports/{task_uuid}.csv       ← generated sales report
   analyses/{task_uuid}/         ← JSON analysis result
   imports/{task_uuid}/          ← validated and stored CSV imports
   invoices/{task_uuid}/         ← generated PDF invoice
