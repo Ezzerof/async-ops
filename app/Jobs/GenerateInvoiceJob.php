@@ -7,6 +7,7 @@ use App\Models\Task;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
 
@@ -32,6 +33,9 @@ class GenerateInvoiceJob implements ShouldQueue
         $task = Task::with('user')->find($this->task->id);
 
         if (! $task) {
+            Log::warning('[InvoiceGeneration] Idempotency skip — task deleted.', [
+                'task_uuid' => $this->task->uuid,
+            ]);
             return;
         }
 
@@ -39,12 +43,22 @@ class GenerateInvoiceJob implements ShouldQueue
 
         // Guard: duplicate dispatch or manual retry
         if ($task->status !== TaskStatus::Pending) {
+            Log::warning('[InvoiceGeneration] Idempotency skip — status is not pending.', [
+                'task_uuid' => $task->uuid,
+                'status'    => $task->status->value,
+            ]);
             return;
         }
 
         $task->update([
             'status'   => TaskStatus::Processing,
             'progress' => 0,
+        ]);
+
+        Log::info('[InvoiceGeneration] Job started.', [
+            'task_uuid' => $task->uuid,
+            'user_id'   => $task->user_id,
+            'csv_path'  => $task->payload['file'] ?? null,
         ]);
 
         $csvPath = $task->payload['file'];
@@ -131,11 +145,21 @@ class GenerateInvoiceJob implements ShouldQueue
                 'progress'    => 100,
                 'result_path' => $resultPath,
             ]);
+
+            Log::info('[InvoiceGeneration] Job completed.', [
+                'task_uuid'   => $task->uuid,
+                'result_path' => $resultPath,
+            ]);
         } catch (\InvalidArgumentException $e) {
             // Expected business validation failure — mark Failed, do not retry
             $task->update([
                 'status'        => TaskStatus::Failed,
                 'error_message' => $e->getMessage(),
+            ]);
+
+            Log::warning('[InvoiceGeneration] Job failed — validation error.', [
+                'task_uuid' => $task->uuid,
+                'reason'    => $e->getMessage(),
             ]);
         } finally {
             Storage::disk('local')->delete($csvPath);
@@ -147,12 +171,21 @@ class GenerateInvoiceJob implements ShouldQueue
         $task = Task::find($this->task->id);
 
         if (! $task) {
+            Log::warning('[InvoiceGeneration] Job failed — task already deleted, skipping status update.', [
+                'task_uuid' => $this->task->uuid,
+            ]);
             return;
         }
 
         $task->update([
             'status'        => TaskStatus::Failed,
             'error_message' => $e->getMessage(),
+        ]);
+
+        Log::error('[InvoiceGeneration] Job failed.', [
+            'task_uuid' => $task->uuid,
+            'exception' => $e->getMessage(),
+            'trace'     => $e->getTraceAsString(),
         ]);
     }
 }

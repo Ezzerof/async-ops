@@ -7,6 +7,7 @@ use App\Models\Task;
 use Faker\Factory as Faker;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
 
@@ -36,18 +37,30 @@ class GenerateReportJob implements ShouldQueue
     public function handle(): void
     {
         if (! Task::find((int) $this->task->id)) {
+            Log::warning('[Report] Idempotency skip — task deleted.', [
+                'task_uuid' => $this->task->uuid,
+            ]);
             return;
         }
 
         $this->task->refresh();
 
         if ($this->task->status !== TaskStatus::Pending) {
+            Log::warning('[Report] Idempotency skip — status is not pending.', [
+                'task_uuid' => $this->task->uuid,
+                'status'    => $this->task->status->value,
+            ]);
             return;
         }
 
         $this->task->update([
             'status'   => TaskStatus::Processing,
             'progress' => 0,
+        ]);
+
+        Log::info('[Report] Job started.', [
+            'task_uuid' => $this->task->uuid,
+            'user_id'   => $this->task->user_id,
         ]);
 
         $faker     = Faker::create();
@@ -95,6 +108,11 @@ class GenerateReportJob implements ShouldQueue
                 'progress'    => 100,
                 'result_path' => $path,
             ]);
+
+            Log::info('[Report] Job completed.', [
+                'task_uuid'   => $this->task->uuid,
+                'result_path' => $path,
+            ]);
         } finally {
             fclose($stream);
         }
@@ -103,12 +121,21 @@ class GenerateReportJob implements ShouldQueue
     public function failed(Throwable $e): void
     {
         if (! Task::find((int) $this->task->id)) {
+            Log::warning('[Report] Job failed — task already deleted, skipping status update.', [
+                'task_uuid' => $this->task->uuid,
+            ]);
             return;
         }
 
         $this->task->update([
             'status'        => TaskStatus::Failed,
             'error_message' => $e->getMessage(),
+        ]);
+
+        Log::error('[Report] Job failed.', [
+            'task_uuid' => $this->task->uuid,
+            'exception' => $e->getMessage(),
+            'trace'     => $e->getTraceAsString(),
         ]);
     }
 }

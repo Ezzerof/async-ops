@@ -8,6 +8,7 @@ use App\Services\CsvImportService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 use Throwable;
 
@@ -29,6 +30,9 @@ class ImportCsvJob implements ShouldQueue
     {
         // Guard against the task being deleted between dispatch and execution
         if (! $this->taskExists()) {
+            Log::warning('[CsvImport] Idempotency skip — task deleted.', [
+                'task_uuid' => $this->task->uuid,
+            ]);
             return;
         }
 
@@ -36,12 +40,22 @@ class ImportCsvJob implements ShouldQueue
 
         // Guard against re-processing if already past pending
         if ($this->task->status !== TaskStatus::Pending) {
+            Log::warning('[CsvImport] Idempotency skip — status is not pending.', [
+                'task_uuid' => $this->task->uuid,
+                'status'    => $this->task->status->value,
+            ]);
             return;
         }
 
         $this->task->update([
             'status'   => TaskStatus::Processing,
             'progress' => 0,
+        ]);
+
+        Log::info('[CsvImport] Job started.', [
+            'task_uuid'         => $this->task->uuid,
+            'user_id'           => $this->task->user_id,
+            'original_filename' => $this->task->payload['original_filename'] ?? null,
         ]);
 
         $uploadPath       = $this->task->payload['file'];
@@ -70,12 +84,21 @@ class ImportCsvJob implements ShouldQueue
             'progress' => 100,
             'payload'  => array_merge($this->task->payload ?? [], ['csv_import_id' => $import->id]),
         ]);
+
+        Log::info('[CsvImport] Job completed.', [
+            'task_uuid' => $this->task->uuid,
+            'import_id' => $import->id,
+            'row_count' => $rowCount,
+        ]);
     }
 
     public function failed(Throwable $e): void
     {
         // Task may no longer exist if deleted while the job was queued; skip silently
         if (! $this->taskExists()) {
+            Log::warning('[CsvImport] Job failed — task already deleted, skipping status update.', [
+                'task_uuid' => $this->task->uuid,
+            ]);
             return;
         }
 
@@ -89,6 +112,12 @@ class ImportCsvJob implements ShouldQueue
         $this->task->update([
             'status'        => TaskStatus::Failed,
             'error_message' => $message,
+        ]);
+
+        Log::error('[CsvImport] Job failed.', [
+            'task_uuid' => $this->task->uuid,
+            'exception' => $e->getMessage(),
+            'trace'     => $e->getTraceAsString(),
         ]);
 
         // Clean up any raw upload that may still be on disk

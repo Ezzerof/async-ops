@@ -43,20 +43,20 @@ class CsvImportDestroyTest extends TestCase
     public function test_owner_can_delete_import_and_gets_204(): void
     {
         Storage::fake('local');
-        [$user, , $import] = $this->makeImport();
+        [$user, $task] = $this->makeImport();
 
         $this->actingAs($user, 'sanctum')
-            ->deleteJson('/api/imports/' . $import->id)
+            ->deleteJson('/api/imports/' . $task->uuid)
             ->assertStatus(204);
     }
 
     public function test_csv_import_record_is_deleted_from_database(): void
     {
         Storage::fake('local');
-        [$user, , $import] = $this->makeImport();
+        [$user, $task, $import] = $this->makeImport();
 
         $this->actingAs($user, 'sanctum')
-            ->deleteJson('/api/imports/' . $import->id);
+            ->deleteJson('/api/imports/' . $task->uuid);
 
         $this->assertDatabaseMissing('csv_imports', ['id' => $import->id]);
     }
@@ -67,7 +67,7 @@ class CsvImportDestroyTest extends TestCase
         [$user, $task, $import] = $this->makeImport();
 
         $this->actingAs($user, 'sanctum')
-            ->deleteJson('/api/imports/' . $import->id);
+            ->deleteJson('/api/imports/' . $task->uuid);
 
         $this->assertDatabaseMissing('tasks', ['id' => $task->id]);
     }
@@ -78,7 +78,7 @@ class CsvImportDestroyTest extends TestCase
         [$user, $task, $import] = $this->makeImport();
 
         $this->actingAs($user, 'sanctum')
-            ->deleteJson('/api/imports/' . $import->id);
+            ->deleteJson('/api/imports/' . $task->uuid);
 
         Storage::disk('local')->assertMissing('imports/' . $task->uuid . '/data.csv');
     }
@@ -86,7 +86,7 @@ class CsvImportDestroyTest extends TestCase
     public function test_delete_returns_409_when_derived_analysis_task_is_pending(): void
     {
         Storage::fake('local');
-        [$user, , $import] = $this->makeImport();
+        [$user, $task, $import] = $this->makeImport();
 
         // A pending analysis task that references the import's stored file
         Task::factory()->create([
@@ -97,7 +97,7 @@ class CsvImportDestroyTest extends TestCase
         ]);
 
         $this->actingAs($user, 'sanctum')
-            ->deleteJson('/api/imports/' . $import->id)
+            ->deleteJson('/api/imports/' . $task->uuid)
             ->assertStatus(409)
             ->assertJsonFragment(['message' => 'An analysis derived from this import is still running. Wait for it to complete before deleting.']);
     }
@@ -105,7 +105,7 @@ class CsvImportDestroyTest extends TestCase
     public function test_delete_returns_409_when_derived_analysis_task_is_processing(): void
     {
         Storage::fake('local');
-        [$user, , $import] = $this->makeImport();
+        [$user, $task, $import] = $this->makeImport();
 
         Task::factory()->create([
             'user_id' => $user->id,
@@ -115,14 +115,14 @@ class CsvImportDestroyTest extends TestCase
         ]);
 
         $this->actingAs($user, 'sanctum')
-            ->deleteJson('/api/imports/' . $import->id)
+            ->deleteJson('/api/imports/' . $task->uuid)
             ->assertStatus(409);
     }
 
     public function test_delete_succeeds_when_derived_analysis_task_is_completed(): void
     {
         Storage::fake('local');
-        [$user, , $import] = $this->makeImport();
+        [$user, $task, $import] = $this->makeImport();
 
         Task::factory()->create([
             'user_id' => $user->id,
@@ -132,17 +132,17 @@ class CsvImportDestroyTest extends TestCase
         ]);
 
         $this->actingAs($user, 'sanctum')
-            ->deleteJson('/api/imports/' . $import->id)
+            ->deleteJson('/api/imports/' . $task->uuid)
             ->assertStatus(204);
     }
 
     public function test_delete_succeeds_when_import_is_still_processing(): void
     {
         Storage::fake('local');
-        [$user, , $import] = $this->makeImport(status: 'processing');
+        [$user, $task, $import] = $this->makeImport(status: 'processing');
 
         $this->actingAs($user, 'sanctum')
-            ->deleteJson('/api/imports/' . $import->id)
+            ->deleteJson('/api/imports/' . $task->uuid)
             ->assertStatus(204);
 
         $this->assertDatabaseMissing('csv_imports', ['id' => $import->id]);
@@ -155,20 +155,20 @@ class CsvImportDestroyTest extends TestCase
     public function test_unauthenticated_request_returns_401(): void
     {
         Storage::fake('local');
-        [, , $import] = $this->makeImport();
+        [, $task] = $this->makeImport();
 
-        $this->deleteJson('/api/imports/' . $import->id)
+        $this->deleteJson('/api/imports/' . $task->uuid)
             ->assertStatus(401);
     }
 
     public function test_other_user_cannot_delete_import_and_gets_403(): void
     {
         Storage::fake('local');
-        [, , $import] = $this->makeImport();
+        [, $task] = $this->makeImport();
         $other = User::factory()->create();
 
         $this->actingAs($other, 'sanctum')
-            ->deleteJson('/api/imports/' . $import->id)
+            ->deleteJson('/api/imports/' . $task->uuid)
             ->assertStatus(403);
     }
 

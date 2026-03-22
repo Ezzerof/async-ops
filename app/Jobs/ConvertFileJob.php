@@ -10,6 +10,7 @@ use Illuminate\Bus\Batchable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 use Throwable;
 
@@ -37,12 +38,26 @@ class ConvertFileJob implements ShouldQueue
         // batch progress. This is intentional — a cancelled batch is already failed;
         // the catch callback handles the task status transition.
         if ($this->batch()->cancelled()) {
+            Log::warning('[FileConversion] Idempotency skip — batch cancelled.', [
+                'task_uuid'   => $this->task->uuid,
+                'source_path' => $this->sourcePath,
+            ]);
             return;
         }
 
         if (! $this->taskExists()) {
+            Log::warning('[FileConversion] Idempotency skip — task deleted.', [
+                'task_uuid'   => $this->task->uuid,
+                'source_path' => $this->sourcePath,
+            ]);
             return;
         }
+
+        Log::info('[FileConversion] Job started.', [
+            'task_uuid'     => $this->task->uuid,
+            'source_path'   => $this->sourcePath,
+            'target_format' => $this->targetFormat->value,
+        ]);
 
         $outputPath = $service->convert($this->sourcePath, $this->targetFormat);
 
@@ -52,11 +67,20 @@ class ConvertFileJob implements ShouldQueue
         $payload = $task->payload ?? [];
         $payload['output_files'][] = $outputPath;
         $task->update(['payload' => $payload]);
+
+        Log::info('[FileConversion] Job completed.', [
+            'task_uuid'   => $this->task->uuid,
+            'output_path' => $outputPath,
+        ]);
     }
 
     public function failed(Throwable $e): void
     {
         if (! $this->taskExists()) {
+            Log::warning('[FileConversion] Job failed — task already deleted, skipping status update.', [
+                'task_uuid'   => $this->task->uuid,
+                'source_path' => $this->sourcePath,
+            ]);
             return;
         }
 
@@ -70,6 +94,13 @@ class ConvertFileJob implements ShouldQueue
         $this->task->update([
             'status'        => TaskStatus::Failed,
             'error_message' => $message,
+        ]);
+
+        Log::error('[FileConversion] Job failed.', [
+            'task_uuid'   => $this->task->uuid,
+            'source_path' => $this->sourcePath,
+            'exception'   => $e->getMessage(),
+            'trace'       => $e->getTraceAsString(),
         ]);
     }
 
