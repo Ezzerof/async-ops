@@ -17,6 +17,7 @@ use App\Models\User;
 use Illuminate\Bus\Batch;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -70,13 +71,21 @@ class TaskService
 
     public function createTask(User $user, string $type, ?array $payload = null): Task
     {
-        return Task::create([
+        $task = Task::create([
             'user_id'  => $user->id,
             'type'     => $type,
             'status'   => TaskStatus::Pending,
             'progress' => 0,
             'payload'  => $payload,
         ]);
+
+        Log::info('[TaskService] Task created.', [
+            'task_uuid' => $task->uuid,
+            'task_type' => $type,
+            'user_id'   => $user->id,
+        ]);
+
+        return $task;
     }
 
     /**
@@ -107,6 +116,11 @@ class TaskService
 
             return $this->dispatchBatchForTask($task, $jobs);
         } catch (\Throwable $e) {
+            Log::error('[TaskService] Task setup failed — compensating: deleting files and task record.', [
+                'task_uuid' => $task->uuid,
+                'task_type' => TaskType::FileConversion->value,
+                'exception' => $e->getMessage(),
+            ]);
             Storage::deleteDirectory('uploads/' . $task->uuid);
             $task->delete();
             throw $e;
@@ -136,8 +150,18 @@ class TaskService
 
             AnalyseDataJob::dispatch($task);
 
+            Log::info('[TaskService] AnalyseDataJob dispatched.', [
+                'task_uuid' => $task->uuid,
+                'task_type' => $task->type,
+            ]);
+
             return $task;
         } catch (\Throwable $e) {
+            Log::error('[TaskService] Task setup failed — compensating: deleting files and task record.', [
+                'task_uuid' => $task->uuid,
+                'task_type' => TaskType::DataAnalysis->value,
+                'exception' => $e->getMessage(),
+            ]);
             Storage::deleteDirectory('uploads/' . $task->uuid);
             $task->delete();
             throw $e;
@@ -187,8 +211,18 @@ class TaskService
 
             GenerateInvoiceJob::dispatch($task);
 
+            Log::info('[TaskService] GenerateInvoiceJob dispatched.', [
+                'task_uuid' => $task->uuid,
+                'task_type' => $task->type,
+            ]);
+
             return $task;
         } catch (\Throwable $e) {
+            Log::error('[TaskService] Task setup failed — compensating: deleting files and task record.', [
+                'task_uuid' => $task->uuid,
+                'task_type' => TaskType::InvoiceGeneration->value,
+                'exception' => $e->getMessage(),
+            ]);
             Storage::deleteDirectory('uploads/' . $task->uuid);
             $task->delete();
             throw $e;
@@ -243,8 +277,18 @@ class TaskService
 
             ImportCsvJob::dispatch($task);
 
+            Log::info('[TaskService] ImportCsvJob dispatched.', [
+                'task_uuid' => $task->uuid,
+                'task_type' => $task->type,
+            ]);
+
             return $task;
         } catch (\Throwable $e) {
+            Log::error('[TaskService] Task setup failed — compensating: deleting files and task record.', [
+                'task_uuid' => $task->uuid,
+                'task_type' => TaskType::CsvImport->value,
+                'exception' => $e->getMessage(),
+            ]);
             Storage::deleteDirectory('uploads/' . $task->uuid);
             $task->delete();
             throw $e;
@@ -273,6 +317,11 @@ class TaskService
     {
         Storage::disk('local')->deleteDirectory('imports/' . $import->task->uuid);
         $import->task->delete(); // cascade removes the csv_imports row
+
+        Log::info('[TaskService] Import deleted.', [
+            'task_uuid' => $import->task->uuid,
+            'import_id' => $import->id,
+        ]);
     }
 
     public function createAnalysisTaskFromImport(User $user, CsvImport $import): Task
@@ -290,8 +339,19 @@ class TaskService
         try {
             AnalyseDataJob::dispatch($task);
 
+            Log::info('[TaskService] AnalyseDataJob dispatched (from import).', [
+                'task_uuid' => $task->uuid,
+                'task_type' => $task->type,
+                'import_id' => $import->id,
+            ]);
+
             return $task;
         } catch (\Throwable $e) {
+            Log::error('[TaskService] Task setup failed — compensating: deleting files and task record.', [
+                'task_uuid' => $task->uuid,
+                'task_type' => TaskType::DataAnalysis->value,
+                'exception' => $e->getMessage(),
+            ]);
             $task->delete();
             throw $e;
         }
@@ -308,6 +368,11 @@ class TaskService
         ]);
 
         GenerateReportJob::dispatch($task);
+
+        Log::info('[TaskService] GenerateReportJob dispatched.', [
+            'task_uuid' => $task->uuid,
+            'task_type' => $task->type,
+        ]);
 
         return $task;
     }
@@ -331,6 +396,9 @@ class TaskService
         $batch = Bus::batch($jobs)
             ->then(function (Batch $batch) use ($task): void {
                 if (! Task::find($task->id)) {
+                    Log::warning('[FileConversion] Batch then — task deleted, skipping.', [
+                        'task_uuid' => $task->uuid,
+                    ]);
                     return;
                 }
 
@@ -348,6 +416,9 @@ class TaskService
                         'status'        => TaskStatus::Failed,
                         'error_message' => 'No output files were produced.',
                     ]);
+                    Log::error('[FileConversion] Batch completed with no output files.', [
+                        'task_uuid' => $task->uuid,
+                    ]);
                     return;
                 }
 
@@ -359,9 +430,17 @@ class TaskService
                     'status'      => TaskStatus::Completed,
                     'result_path' => $resultPath,
                 ]);
+
+                Log::info('[FileConversion] Batch completed.', [
+                    'task_uuid'   => $task->uuid,
+                    'result_path' => $resultPath,
+                ]);
             })
             ->catch(function (Batch $batch, \Throwable $e) use ($task): void {
                 if (! Task::find($task->id)) {
+                    Log::warning('[FileConversion] Batch catch — task deleted, skipping.', [
+                        'task_uuid' => $task->uuid,
+                    ]);
                     return;
                 }
 
@@ -374,6 +453,11 @@ class TaskService
                         'error_message' => 'One or more files could not be converted.',
                     ]);
                 }
+
+                Log::error('[FileConversion] Batch failed.', [
+                    'task_uuid' => $task->uuid,
+                    'exception' => $e->getMessage(),
+                ]);
             })
             ->dispatch();
 
@@ -381,6 +465,12 @@ class TaskService
         $payload             = $task->payload ?? [];
         $payload['batch_id'] = $batch->id;
         $task->update(['payload' => $payload]);
+
+        Log::info('[TaskService] Batch dispatched.', [
+            'task_uuid' => $task->uuid,
+            'batch_id'  => $batch->id,
+            'job_count' => count($jobs),
+        ]);
 
         return $task;
     }
@@ -515,6 +605,9 @@ class TaskService
                     $task = Task::find($taskId);
 
                     if ($task === null) {
+                        Log::warning('[BulkEmail] Batch then — task deleted, skipping.', [
+                            'task_id' => $taskId,
+                        ]);
                         return;
                     }
 
@@ -537,6 +630,9 @@ class TaskService
                         $task->update([
                             'status'        => TaskStatus::Failed,
                             'error_message' => 'No emails were delivered successfully.',
+                        ]);
+                        Log::error('[BulkEmail] Batch completed — no emails were delivered.', [
+                            'task_uuid' => $task->uuid,
                         ]);
                         return;
                     }
@@ -563,23 +659,40 @@ class TaskService
                         'progress'    => 100,
                         'result_path' => $reportPath,
                     ]);
+
+                    Log::info('[BulkEmail] Batch completed — delivery report generated.', [
+                        'task_uuid'   => $task->uuid,
+                        'result_path' => $reportPath,
+                    ]);
                 })
                 ->catch(function (Batch $batch, \Throwable $e) use ($taskId): void {
                     $task = Task::find($taskId);
 
                     if ($task === null) {
+                        Log::warning('[BulkEmail] Batch catch — task deleted, skipping.', [
+                            'task_id' => $taskId,
+                        ]);
                         return;
                     }
 
                     $task = $task->refresh();
 
                     if ($task->status === TaskStatus::Completed || $task->status === TaskStatus::Failed) {
+                        Log::warning('[BulkEmail] Batch catch — status already settled, skipping.', [
+                            'task_uuid' => $task->uuid,
+                            'status'    => $task->status->value,
+                        ]);
                         return;
                     }
 
                     $task->update([
                         'status'        => TaskStatus::Failed,
                         'error_message' => 'Batch processing failed unexpectedly.',
+                    ]);
+
+                    Log::error('[BulkEmail] Batch failed unexpectedly.', [
+                        'task_uuid' => $task->uuid,
+                        'exception' => $e->getMessage(),
                     ]);
                 })
                 ->dispatch();
@@ -588,8 +701,19 @@ class TaskService
             $payload['batch_id'] = $batch->id;
             $task->update(['payload' => $payload]);
 
+            Log::info('[TaskService] Bulk email batch dispatched.', [
+                'task_uuid'       => $task->uuid,
+                'batch_id'        => $batch->id,
+                'recipient_count' => count($recipients),
+            ]);
+
             return $task;
         } catch (\Throwable $e) {
+            Log::error('[TaskService] Task setup failed — compensating: deleting files and task record.', [
+                'task_uuid' => $task->uuid,
+                'task_type' => TaskType::BulkEmail->value,
+                'exception' => $e->getMessage(),
+            ]);
             Storage::disk('local')->deleteDirectory('emails/' . $task->uuid);
             $task->delete();
             throw $e;

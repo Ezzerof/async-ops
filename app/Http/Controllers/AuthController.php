@@ -8,6 +8,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
@@ -18,6 +19,11 @@ class AuthController extends Controller
             'name'     => $request->validated('name'),
             'email'    => $request->validated('email'),
             'password' => Hash::make($request->validated('password')),
+        ]);
+
+        Log::info('[Auth] User registered.', [
+            'user_id' => $user->id,
+            'email'   => $user->email,
         ]);
 
         $token = $user->createToken('api')->plainTextToken;
@@ -33,6 +39,9 @@ class AuthController extends Controller
         ]);
 
         if (! Auth::attempt($credentials)) {
+            Log::warning('[Auth] Login failed — invalid credentials.', [
+                'email' => $request->input('email'),
+            ]);
             throw ValidationException::withMessages([
                 'email' => ['The provided credentials are incorrect.'],
             ]);
@@ -42,12 +51,21 @@ class AuthController extends Controller
         $user  = Auth::user();
         $token = $user->createToken('api')->plainTextToken;
 
+        Log::info('[Auth] Login successful.', [
+            'user_id' => $user->id,
+            'email'   => $user->email,
+        ]);
+
         return response()->json(['token' => $token], 200);
     }
 
     public function logout(Request $request): JsonResponse
     {
         $request->user()->currentAccessToken()->delete();
+
+        Log::info('[Auth] Logout.', [
+            'user_id' => $request->user()->id,
+        ]);
 
         return response()->json(['message' => 'Logged out successfully.']);
     }
