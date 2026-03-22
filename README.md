@@ -15,7 +15,7 @@ A Laravel API demonstrating async background task processing — from HTTP reque
 ## Features
 
 ### Report Generation
-A user authenticates, requests a report via the API, and the system creates a `Task` record and dispatches a background job. The job generates a CSV of all users, tracking progress incrementally. Once complete, the file is available for download through a dedicated endpoint.
+Submit a task with `POST /api/tasks` (`"type": "report"`) and `GenerateReportJob` generates a 50-row synthetic sales report CSV asynchronously. Progress is tracked incrementally and polled via `GET /api/tasks/{uuid}`. The completed file is downloaded via `GET /api/tasks/{uuid}/download`.
 
 ### File Conversion
 Upload one or more files and convert them between formats (CSV ↔ JSON, XML → JSON). Each file is processed as an individual job inside a `Bus::batch()`. Progress is derived live from the batch rather than written per-job. Multi-file results are zipped automatically for download.
