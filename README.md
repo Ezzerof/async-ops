@@ -187,3 +187,13 @@ I built this project feature by feature, starting with the architecture and impl
 I tried to avoid overengineering and only introduced extra structure when it solved a real problem. Instead of creating completely different flows for each feature, I reused the same task-processing approach wherever possible. This made the project easier to extend and helped the different parts of the system feel connected.
 
 ---
+
+## Chosen AI tool and how I set it up
+
+---
+
+For this project, I chose Claude Pro in Cursor as my main AI tool. I paid for Claude Pro so I could use it consistently for longer and more detailed development sessions.
+
+To set it up, I first installed Cursor from its official website. After that, I followed the documentation to install and configure Claude so I could use it inside the editor. Once everything was ready, I opened my project in Cursor, started a terminal inside the editor, typed claude, and began working on the project.
+
+---
