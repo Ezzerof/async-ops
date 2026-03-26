@@ -163,3 +163,27 @@ storage/app/private/
   emails/{task_uuid}/attachment_{uuid}.pdf  ← uploaded PDF attachment (deleted after batch completes)
   emails/{task_uuid}/report.csv             ← delivery report CSV, survives for download
 ```
+---
+
+## Key Discoveries along the way
+
+---
+Throughout this project, I discovered that AsyncOps became much stronger when I treated it as one connected system rather than a set of separate demo features. Instead of building isolated functionality, I focused on reusing the same async task flow across imports, analysis, file generation, and delivery.
+
+Another useful discovery was that I could ask Claude to analyse my transcripts, review my communication approach, rate how effectively I was working with it, and suggest ways to make that collaboration more efficient. That helped me reflect not only on the code and architecture, but also on how I prompt, structure requests, and break work into smaller, clearer steps.
+
+I also learned the value of planning before implementation. For each feature, I tried to understand the problem first, compare trade-offs, and only then start coding. This helped me avoid unnecessary complexity and make decisions with more confidence.
+
+Another important discovery was that queues are not only useful for background execution, but also for creating a consistent task lifecycle. Features such as progress tracking, retries, failure handling, and result delivery became easier to reason about once they all followed the same pattern.
+
+---
+
+## Development Approach
+
+---
+
+I built this project feature by feature, starting with the architecture and implementation plan before writing code. My goal was to keep the solution simple enough for a technical assessment, while still applying good backend design principles such as separation of concerns, reusability, and testability.
+
+I tried to avoid overengineering and only introduced extra structure when it solved a real problem. Instead of creating completely different flows for each feature, I reused the same task-processing approach wherever possible. This made the project easier to extend and helped the different parts of the system feel connected.
+
+---
