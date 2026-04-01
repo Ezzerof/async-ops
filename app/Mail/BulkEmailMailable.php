@@ -24,7 +24,10 @@ class BulkEmailMailable extends Mailable
 
     public function content(): Content
     {
-        return new Content(view: 'emails.bulk');
+        return new Content(
+            view: 'emails.bulk',
+            with: ['subject' => $this->subject],
+        );
     }
 
     public function attachments(): array
