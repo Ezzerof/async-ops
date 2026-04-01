@@ -36,20 +36,20 @@ enum TaskType: string
         return match ($this) {
             self::Report         => [
                 'filename'     => 'report-' . $uuid . '.csv',
-                'content_type' => 'text/csv',
+                'content_type' => self::MIME_MAP['csv'],
             ],
             self::DataAnalysis   => [
                 'filename'     => 'analysis-' . $uuid . '.json',
-                'content_type' => 'application/json',
+                'content_type' => self::MIME_MAP['json'],
             ],
             self::InvoiceGeneration => [
                 'filename'     => 'invoice-' . $uuid . '.pdf',
-                'content_type' => 'application/pdf',
-            ],        
+                'content_type' => self::MIME_MAP['pdf'],
+            ],
             self::FileConversion => $this->conversionMeta($uuid, $resultPath),
             self::BulkEmail      => [
                 'filename'     => 'email-report-' . $uuid . '.csv',
-                'content_type' => 'text/csv',
+                'content_type' => self::MIME_MAP['csv'],
             ],
             self::CsvImport      => throw new \LogicException(
                 'CsvImport tasks do not produce a downloadable file.'
