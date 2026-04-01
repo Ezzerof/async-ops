@@ -18,9 +18,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/tasks/{task}',          [TaskController::class, 'show']);
     Route::get('/tasks/{task}/download', [TaskController::class, 'download']);
 
-    Route::post('/conversions', [ConversionController::class, 'store']);
-    Route::post('/analyses',   [AnalysisController::class, 'store']);
-    Route::post('/invoices',   [InvoiceController::class, 'store']);
+    Route::post('/conversions', ConversionController::class);
+    Route::post('/analyses',   AnalysisController::class);
+    Route::post('/invoices',   InvoiceController::class);
 
     Route::post('/imports',           [CsvImportController::class, 'store'])->middleware('throttle:10,1');
     Route::get('/imports/{import}',            [CsvImportController::class, 'show']);

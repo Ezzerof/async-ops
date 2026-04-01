@@ -10,7 +10,7 @@ class AnalysisController extends Controller
 {
     public function __construct(private readonly TaskService $taskService) {}
 
-    public function store(StoreAnalysisRequest $request): JsonResponse
+    public function __invoke(StoreAnalysisRequest $request): JsonResponse
     {
         $task = $this->taskService->createAnalysisTask(
             user: $request->user(),

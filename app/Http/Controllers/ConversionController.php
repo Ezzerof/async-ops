@@ -11,7 +11,7 @@ class ConversionController extends Controller
 {
     public function __construct(private readonly TaskService $taskService) {}
 
-    public function store(StoreConversionRequest $request): JsonResponse
+    public function __invoke(StoreConversionRequest $request): JsonResponse
     {
         $task = $this->taskService->createConversionTask(
             user:         $request->user(),
