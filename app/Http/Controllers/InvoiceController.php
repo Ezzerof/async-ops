@@ -10,7 +10,7 @@ class InvoiceController extends Controller
 {
     public function __construct(private readonly TaskService $taskService) {}
 
-    public function store(StoreInvoiceRequest $request): JsonResponse
+    public function __invoke(StoreInvoiceRequest $request): JsonResponse
     {
         $task = $this->taskService->createInvoiceTask(
             user: $request->user(),
